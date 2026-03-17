@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Family Schedule App v2.7 (Fixed Loading)</title>
+    <title>Family Schedule App v2.9</title>
     
     <!-- 모바일 앱 설정 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -66,13 +66,8 @@
                 'repeat': <React.Fragment><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></React.Fragment>,
                 'cycle': <React.Fragment><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></React.Fragment>,
                 'gift': <React.Fragment><polyline points="20 12 20 22 4 22 4 12"/><rect width="20" height="5" x="2" y="7" rx="2"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></React.Fragment>,
-                'alert-triangle': (
-                    <React.Fragment>
-                        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
-                        <line x1="12" y1="9" x2="12" y2="13"/>
-                        <line x1="12" y1="17" x2="12.01" y2="17"/>
-                    </React.Fragment>
-                )
+                'alert-triangle': <React.Fragment><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></React.Fragment>,
+                'refresh': <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
             };
             return (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -110,34 +105,53 @@
             const [uiMessage, setUiMessage] = useState(null);
             const [holidays, setHolidays] = useState({});
             const [pendingConflict, setPendingConflict] = useState(null);
+            const [loadError, setLoadError] = useState(false);
 
             const showMessage = (msg) => { setUiMessage(msg); setTimeout(() => setUiMessage(null), 2000); };
 
-            const formatToAmPm = (timeStr) => {
+            const formatToAmPm = useCallback((timeStr) => {
                 if (!timeStr || !timeStr.includes(':')) return "";
                 const [hStr, mStr] = timeStr.split(':');
                 const h = parseInt(hStr, 10);
-                const ampm = h >= 12 ? '오후' : '오전';
-                const hour12 = h % 12 || 12;
-                return `${ampm} ${hour12}:${mStr}`;
-            };
+                return `${h >= 12 ? '오후' : '오전'} ${h % 12 || 12}:${mStr}`;
+            }, []);
 
-            const timeToMinutes = (t) => {
+            const timeToMinutes = useCallback((t) => {
                 if (!t || !t.includes(':')) return 0;
                 const [h, m] = t.split(':').map(Number);
                 return h * 60 + m;
-            };
+            }, []);
 
-            const checkOverlap = (timeA, timeB) => {
+            const checkOverlap = useCallback((timeA, timeB) => {
                 if (!timeA.includes('~') || !timeB.includes('~')) return false;
-                const [startAStr, endAStr] = timeA.split('~');
-                const [startBStr, endBStr] = timeB.split('~');
-                const startA = timeToMinutes(startAStr), endA = timeToMinutes(endAStr);
-                const startB = timeToMinutes(startBStr), endB = timeToMinutes(endBStr);
-                return startA < endB && startB < endA;
-            };
+                const [sA, eA] = timeA.split('~').map(timeToMinutes);
+                const [sB, eB] = timeB.split('~').map(timeToMinutes);
+                return sA < eB && sB < eA;
+            }, [timeToMinutes]);
 
-            // 1. 공휴일 API 데이터 (Nager.Date)
+            const getInitialData = useCallback(() => ({
+                SeoYoon: { 
+                    weekly: { 
+                        "1": [{n:"덕스(영어)", t:"15:30~18:30"}], "2":[{n:"아담리즈", t:"14:30~16:30"}, {n:"미술학원", t:"16:30~18:20"}], 
+                        "3":[{n:"아이비 영어", t:"14:30~16:30"}, {n:"CMS 수업", t:"19:30~21:00"}], 
+                        "4":[{n:"몬테소리", t:"15:00~16:00"}, {n:"플라톤", t:"16:00~17:50"}, {n:"코딩", t:"21:00~21:40"}], 
+                        "5":[{n:"덕스(영어)", t:"15:30~18:30"}] 
+                    }, 
+                    monthly: { "3-2": [{n:"🔭 천문대 수업", t:"18:20~21:30"}], "2-3": [{n:"🎨 미술학원 특강", t:"17:00~19:00"}], "4-3": [{n:"🎨 미술학원 특강", t:"17:00~19:00"}] },
+                    once: {} 
+                },
+                YoonSung: { 
+                    weekly: { 
+                        "1": [{n:"소한이 한글", t:"14:00~15:00"}, {n:"아이비 영어", t:"15:30~17:00"}, {n:"종이접기", t:"17:20~18:20"}], 
+                        "2": [{n:"그림책여행", t:"14:30~16:00"}, {n:"미술학원", t:"16:50~18:40"}], 
+                        "3": [{n:"아이비 영어", t:"14:30~16:30"}, {n:"수영", t:"18:00~19:00"}], 
+                        "4": [{n:"몬테소리", t:"14:00~15:00"}, {n:"아담리즈", t:"16:30~18:10"}], 
+                        "5": [{n:"소한이 한글", t:"14:00~15:00"}, {n:"아이비 영어", t:"15:30~17:00"}, {n:"종이접기", t:"17:20~18:20"}] 
+                    }, 
+                    monthly: {}, once: {} 
+                }
+            }), []);
+
             useEffect(() => {
                 const fetchHolidays = async () => {
                     try {
@@ -151,130 +165,98 @@
                             }
                         }
                         setHolidays(allHolidays);
-                    } catch (err) { console.error("Holiday API Error:", err); }
+                    } catch (err) { console.error("Holiday API Error"); }
                 };
                 fetchHolidays();
             }, []);
 
-            // 2. Firebase 인증
             useEffect(() => {
                 const initAuth = async () => {
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await auth.signInWithCustomToken(__initial_auth_token);
                         else await auth.signInAnonymously();
-                    } catch (err) { auth.signInAnonymously().catch(console.error); }
+                    } catch (err) { await auth.signInAnonymously().catch(() => setLoadError(true)); }
                 };
                 initAuth();
                 const unsubscribe = auth.onAuthStateChanged((u) => { if (u) setUser(u); });
                 return () => unsubscribe();
             }, []);
 
-            // 3. 실시간 데이터 동기화 + [중요] 초기 데이터 자동 생성 로직
             useEffect(() => {
                 if (!user) return;
                 const docRef = db.doc(`artifacts/${appId}/public/data/schedules/v2_1_master`);
                 const unsubscribe = docRef.onSnapshot((docSnap) => {
-                    if (docSnap.exists) {
-                        setMasterData(docSnap.data());
-                    } else {
-                        // DB에 데이터가 없는 경우 초기화 데이터 강제 주입
-                        const initialData = {
-                            SeoYoon: { 
-                                weekly: { 
-                                    "1": [{n:"덕스(영어)", t:"15:30~18:30"}], 
-                                    "2":[{n:"아담리즈", t:"14:30~16:30"}, {n:"미술학원", t:"16:30~18:20"}], 
-                                    "3":[{n:"아이비 영어 도서관", t:"14:30~16:30"}, {n:"CMS 수업", t:"19:30~21:00"}], 
-                                    "4":[{n:"몬테소리 (한국사)", t:"15:00~16:00"}, {n:"플라톤", t:"16:00~17:50"}, {n:"코딩 수업", t:"21:00~21:40"}], 
-                                    "5":[{n:"덕스(영어)", t:"15:30~18:30"}] 
-                                }, 
-                                monthly: { 
-                                    "3-2": [{n:"🔭 천문대 수업", t:"18:20~21:30"}],
-                                    "2-3": [{n:"🎨 미술학원 특강", t:"17:00~19:00"}],
-                                    "4-3": [{n:"🎨 미술학원 특강", t:"17:00~19:00"}] 
-                                },
-                                once: {} 
-                            },
-                            YoonSung: { 
-                                weekly: { 
-                                    "1": [{n:"소한이 한글", t:"14:00~15:00"}, {n:"아이비 영어 도서관", t:"15:30~17:00"}, {n:"종이접기", t:"17:20~18:20"}], 
-                                    "2": [{n:"그림책여행", t:"14:30~16:00"}, {n:"미술학원", t:"16:50~18:40"}], 
-                                    "3": [{n:"아이비 영어 도서관", t:"14:30~16:30"}, {n:"수영", t:"18:00~19:00"}], 
-                                    "4": [{n:"몬테소리", t:"14:00~15:00"}, {n:"아담리즈", t:"16:30~18:10"}], 
-                                    "5": [{n:"소한이 한글", t:"14:00~15:00"}, {n:"아이비 영어 도서관", t:"15:30~17:00"}, {n:"종이접기", t:"17:20~18:20"}] 
-                                }, 
-                                monthly: {}, once: {} 
-                            }
-                        };
-                        docRef.set(initialData).then(() => setMasterData(initialData)).catch(console.error);
+                    if (docSnap.exists) setMasterData(docSnap.data());
+                    else {
+                        const data = getInitialData();
+                        docRef.set(data).then(() => setMasterData(data)).catch(e => setLoadError(true));
                     }
-                }, (error) => {
-                    console.error("Firestore Error:", error);
-                    showMessage("데이터베이스 연결 오류");
-                });
+                }, (error) => setLoadError(true));
                 return () => unsubscribe();
-            }, [user]);
+            }, [user, getInitialData]);
 
-            const getHolidayName = useCallback((date) => {
-                const dateStr = date.toISOString().split('T')[0];
-                return holidays[dateStr] || null;
-            }, [holidays]);
-
-            const getWeekOfMonth = useCallback((date) => {
-                const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
-                return Math.ceil((date.getDate() + startOfMonth.getDay()) / 7);
-            }, []);
+            const getHolidayName = useCallback((date) => holidays[date.toISOString().split('T')[0]] || null, [holidays]);
+            const getWeekOfMonth = useCallback((date) => Math.ceil((date.getDate() + new Date(date.getFullYear(), date.getMonth(), 1).getDay()) / 7), []);
 
             const getCombinedSchedule = useCallback((date, childId) => {
                 if (!masterData || !date) return [];
-                const holiday = getHolidayName(date);
-                const day = date.getDay();
-                const weekNum = getWeekOfMonth(date);
-                const dateStr = date.toISOString().split('T')[0];
-                
+                const holiday = getHolidayName(date), day = date.getDay(), weekNum = getWeekOfMonth(date), dateStr = date.toISOString().split('T')[0];
                 const weekly = holiday ? [] : (masterData[childId]?.weekly?.[String(day)] || []).map(i => ({...i, type: 'weekly'}));
                 const monthly = holiday ? [] : (masterData[childId]?.monthly?.[`${weekNum}-${day}`] || []).map(i => ({...i, type: 'monthly'}));
                 const once = (masterData[childId]?.once?.[dateStr] || []).map(i => ({...i, type: 'once'}));
-                
-                const rawSchedule = [...weekly, ...monthly, ...once].sort((a, b) => String(a.t || "").localeCompare(String(b.t || "")));
-                const schedule = rawSchedule.map((item, idx) => {
-                    const isConflicted = rawSchedule.some((other, oIdx) => idx !== oIdx && checkOverlap(item.t, other.t));
-                    return { ...item, isConflicted };
-                });
+                const raw = [...weekly, ...monthly, ...once].sort((a, b) => String(a.t || "").localeCompare(String(b.t || "")));
+                const schedule = raw.map((item, idx) => ({ ...item, isConflicted: raw.some((other, oIdx) => idx !== oIdx && checkOverlap(item.t, other.t)) }));
                 if (holiday) schedule.unshift({ n: `🚩 ${holiday}`, t: "00:00~23:59", type: 'holiday', s: true });
                 return schedule;
-            }, [masterData, getWeekOfMonth, getHolidayName]);
+            }, [masterData, getWeekOfMonth, getHolidayName, checkOverlap]);
 
             const calendarDays = useMemo(() => {
                 const y = currentDate.getFullYear(), m = currentDate.getMonth();
-                const first = new Date(y, m, 1).getDay();
-                const last = new Date(y, m + 1, 0).getDate();
+                const first = new Date(y, m, 1).getDay(), last = new Date(y, m + 1, 0).getDate();
                 const d = [];
                 for (let i = 0; i < first; i++) d.push(null);
                 for (let i = 1; i <= last; i++) d.push(new Date(y, m, i));
                 return d;
             }, [currentDate]);
 
+            const forceReset = () => {
+                if (!confirm("데이터를 초기화하시겠습니까?")) return;
+                const docRef = db.doc(`artifacts/${appId}/public/data/schedules/v2_1_master`);
+                const data = getInitialData();
+                docRef.set(data).then(() => { setMasterData(data); setLoadError(false); showMessage("초기화 완료"); });
+            };
+
+            // [FIX] 로딩 화면 리턴 이전에 모든 Hook이 호출되도록 배치함.
+            // masterData가 로드된 이후의 변수 정의도 훅 규칙을 위반하지 않도록 스코프 조정.
+            
             if (!masterData) return (
-                <div className="h-screen flex flex-col items-center justify-center bg-white space-y-4">
-                    <div className="w-10 h-10 border-4 border-slate-100 border-t-blue-500 rounded-full animate-spin"></div>
-                    <p className="text-slate-400 font-bold uppercase text-xs tracking-widest animate-pulse">Syncing Cloud...</p>
+                <div className="h-screen flex flex-col items-center justify-center bg-white p-10 text-center">
+                    <div className="w-12 h-12 border-4 border-slate-100 border-t-blue-500 rounded-full animate-spin mb-6"></div>
+                    <h3 className="text-lg font-black text-slate-800 mb-2">클라우드 동기화 중</h3>
+                    {(loadError || !user) && (
+                        <div className="mt-4 space-y-4">
+                            <p className="text-[10px] text-red-500 font-bold bg-red-50 px-4 py-2 rounded-lg">연결 지연 중...</p>
+                            <button onClick={forceReset} className="px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black shadow-xl flex items-center gap-2 mx-auto"><Icon name="refresh" className="w-3 h-3" /> 강제 초기화</button>
+                        </div>
+                    )}
                 </div>
             );
+
+            // [FIX] masterData 존재가 보장된 이후에 변수 선언
+            const theme = activeChild === 'SeoYoon' ? 'blue' : 'green';
+            const selectedSchedule = getCombinedSchedule(selectedDate, activeChild);
 
             const verifyPin = () => {
                 if (pinBuffer === EDIT_PIN) {
                     setIsPinInputOpen(false);
-                    const schedule = getCombinedSchedule(selectedDate, activeChild).filter(i => i.type !== 'holiday');
-                    setEditingItems(schedule);
+                    setEditingItems(getCombinedSchedule(selectedDate, activeChild).filter(i => i.type !== 'holiday'));
                     setIsEditMode(true);
-                } else { showMessage("PIN 번호 불일치"); setPinBuffer(""); }
+                } else { showMessage("PIN 불일치"); setPinBuffer(""); }
             };
 
             const finalSaveToCloud = async () => {
                 setPendingConflict(null);
-                const day = selectedDate.getDay();
-                const weekNum = getWeekOfMonth(selectedDate);
-                const dateStr = selectedDate.toISOString().split('T')[0];
+                const day = selectedDate.getDay(), weekNum = getWeekOfMonth(selectedDate), dateStr = selectedDate.toISOString().split('T')[0];
                 const updatedChild = JSON.parse(JSON.stringify(masterData[activeChild]));
                 updatedChild.weekly = { ...(updatedChild.weekly || {}), [String(day)]: [] };
                 updatedChild.monthly = { ...(updatedChild.monthly || {}), [`${weekNum}-${day}`]: [] };
@@ -291,23 +273,16 @@
                 } catch (e) { showMessage("저장 실패"); }
             };
 
-            const theme = activeChild === 'SeoYoon' ? 'blue' : 'green';
-            const selectedSchedule = getCombinedSchedule(selectedDate, activeChild);
-
             return (
                 <div className="flex flex-col min-h-screen bg-slate-50 text-slate-900 pb-20 overflow-x-hidden">
                     {uiMessage && <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-slate-800 text-white px-6 py-3 rounded-full text-xs font-bold shadow-2xl animate-in fade-in slide-in-from-top-4">{uiMessage}</div>}
 
                     {pendingConflict && (
                         <div className="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-6">
-                            <div className="bg-white rounded-[2.5rem] w-full max-w-sm p-8 shadow-2xl animate-in zoom-in duration-300">
-                                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
-                                    <Icon name="alert-triangle" className="w-8 h-8" />
-                                </div>
+                            <div className="bg-white rounded-[2.5rem] w-full max-w-sm p-8 shadow-2xl animate-in zoom-in">
+                                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6"><Icon name="alert-triangle" className="w-8 h-8" /></div>
                                 <h4 className="text-xl font-black text-slate-800 text-center mb-2">시간 중복 감지</h4>
-                                <p className="text-slate-500 text-center text-sm leading-relaxed mb-8">
-                                    일정 시간이 겹칩니다. 계속 등록하시겠습니까?
-                                </p>
+                                <p className="text-slate-500 text-center text-sm leading-relaxed mb-8">일정 시간이 겹칩니다. 계속 등록하시겠습니까?</p>
                                 <div className="flex gap-3">
                                     <button onClick={() => setPendingConflict(null)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold">취소</button>
                                     <button onClick={finalSaveToCloud} className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-bold">계속 등록</button>
@@ -348,15 +323,14 @@
                                 {calendarDays.map((date, idx) => {
                                     if (!date) return <div key={`empty-${idx}`} className="bg-white h-20"></div>;
                                     const isSelected = selectedDate.toDateString() === date.toDateString();
-                                    const isToday = new Date().toDateString() === date.toDateString();
-                                    const holidayName = getHolidayName(date);
                                     const items = getCombinedSchedule(date, activeChild);
+                                    const holidayName = getHolidayName(date);
                                     const dayColor = (date.getDay() === 0 || holidayName) ? 'text-red-500' : date.getDay() === 6 ? 'text-blue-500' : 'text-slate-700';
 
                                     return (
                                         <button key={date.toISOString()} onClick={() => { setSelectedDate(date); setIsSheetOpen(true); }} className="bg-white h-20 flex flex-col items-center justify-start pt-3 relative active:bg-slate-50 transition-colors">
                                             {isSelected && <div className={`absolute inset-1.5 rounded-2xl border-2 border-${theme}-400 bg-${theme}-50 opacity-50`}></div>}
-                                            <span className={`text-sm font-bold z-10 ${isToday ? 'bg-slate-900 text-white w-6 h-6 flex items-center justify-center rounded-full text-[10px]' : dayColor}`}>{date.getDate()}</span>
+                                            <span className={`text-sm font-bold z-10 ${new Date().toDateString() === date.toDateString() ? 'bg-slate-900 text-white w-6 h-6 flex items-center justify-center rounded-full text-[10px]' : dayColor}`}>{date.getDate()}</span>
                                             <div className="flex flex-wrap justify-center gap-0.5 mt-2 px-1 z-10">
                                                 {items.map((item, i) => (
                                                     <div key={i} className={`w-1 h-1 rounded-full ${item.isConflicted ? 'bg-red-500 scale-125' : item.type === 'holiday' ? 'bg-red-300' : (item.type === 'monthly' || item.type === 'once') ? 'bg-amber-500' : `bg-${theme}-500`}`}></div>
@@ -373,9 +347,9 @@
                     <div className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[2.5rem] shadow-2xl sheet-transition transform ${isSheetOpen ? 'translate-y-0' : 'translate-y-full'}`} style={{maxHeight: '92vh'}}>
                         <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mt-4 mb-2" />
                         <div className="px-8 py-6 flex items-center justify-between border-b border-slate-50">
-                            <div className="flex-1 pr-4">
+                            <div className="flex-1 pr-4 overflow-hidden">
                                 <p className={`text-[10px] font-black uppercase tracking-widest mb-1 text-${theme}-600`}>Schedule Manager</p>
-                                <h3 className="text-xl font-black text-slate-800">{selectedDate.getDate()}일 ({['일','월','화','수','목','금','토'][selectedDate.getDay()]}) {getHolidayName(selectedDate) && <span className="text-red-500 ml-1 text-sm">[{getHolidayName(selectedDate)}]</span>}</h3>
+                                <h3 className="text-xl font-black text-slate-800 truncate">{selectedDate.getDate()}일 ({['일','월','화','수','목','금','토'][selectedDate.getDay()]}) {getHolidayName(selectedDate) && <span className="text-red-500 ml-1 text-sm">[{getHolidayName(selectedDate)}]</span>}</h3>
                             </div>
                             <button onClick={() => { if (isEditMode) setIsEditMode(false); else { setPinBuffer(""); setIsPinInputOpen(true); } }} className={`flex items-center space-x-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all active:scale-95 ${isEditMode ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600 shadow-sm'}`}>
                                 {isEditMode ? <><Icon name="x" className="w-4 h-4" /> 취소</> : <><Icon name="unlock" className="w-3.5 h-3.5" /> 편집</>}
@@ -385,39 +359,34 @@
                         <div className="p-8 space-y-4 overflow-y-auto no-scrollbar" style={{maxHeight: '70vh'}}>
                             {!isPinInputOpen && isEditMode && (
                                 <div className="space-y-6 pb-12">
-                                    {editingItems.map((item, i) => {
-                                        const isInternalConflict = editingItems.some((other, oIdx) => i !== oIdx && checkOverlap(item.t, other.t));
-                                        return (
-                                            <div key={i} className={`flex flex-col p-6 rounded-[2.5rem] border bg-slate-50 relative animate-in fade-in transition-all ${isInternalConflict ? 'animate-border-red border-red-500' : 'border-slate-200'}`}>
-                                                <button onClick={() => setEditingItems(editingItems.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 p-2 bg-red-500 text-white rounded-full shadow-lg"><Icon name="trash-2" className="w-4 h-4" /></button>
-                                                <div className="space-y-4">
-                                                    <div className="flex bg-white p-1 rounded-2xl border border-slate-100 shadow-sm">
-                                                        {['weekly', 'monthly', 'once'].map(type => (
-                                                            <button key={type} onClick={() => { const n = [...editingItems]; n[i].type = type; setEditingItems(n); }} className={`flex-1 py-2 text-[9px] font-black rounded-xl transition-all flex items-center justify-center gap-1 ${item.type === type ? (type === 'weekly' ? `bg-${theme}-600` : 'bg-amber-500') + ' text-white shadow-md' : 'text-slate-400'}`}>
-                                                                <Icon name={type === 'weekly' ? 'repeat' : type === 'monthly' ? 'cycle' : 'calendar'} className="w-3 h-3" /> {type === 'weekly' ? '매주' : type === 'monthly' ? '매월' : '오늘'}
-                                                            </button>
-                                                        ))}
+                                    {editingItems.map((item, i) => (
+                                        <div key={i} className={`flex flex-col p-6 rounded-[2.5rem] border bg-slate-50 relative animate-in fade-in transition-all ${editingItems.some((other, oIdx) => i !== oIdx && checkOverlap(item.t, other.t)) ? 'animate-border-red border-red-500' : 'border-slate-200'}`}>
+                                            <button onClick={() => setEditingItems(editingItems.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 p-2 bg-red-500 text-white rounded-full shadow-lg"><Icon name="trash-2" className="w-4 h-4" /></button>
+                                            <div className="space-y-4">
+                                                <div className="flex bg-white p-1 rounded-2xl border border-slate-100 shadow-sm">
+                                                    {['weekly', 'monthly', 'once'].map(type => (
+                                                        <button key={type} onClick={() => { const n = [...editingItems]; n[i].type = type; setEditingItems(n); }} className={`flex-1 py-2 text-[9px] font-black rounded-xl transition-all flex items-center justify-center gap-1 ${item.type === type ? (type === 'weekly' ? `bg-${theme}-600` : 'bg-amber-500') + ' text-white shadow-md' : 'text-slate-400'}`}>
+                                                            <Icon name={type === 'weekly' ? 'repeat' : type === 'monthly' ? 'cycle' : 'calendar'} className="w-3 h-3" /> {type === 'weekly' ? '매주' : type === 'monthly' ? '매월' : '오늘'}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <div className="flex items-center bg-white px-4 py-3 rounded-2xl border border-slate-100 shadow-sm">
+                                                    <Icon name="edit-3" className="w-4 h-4 text-slate-300 mr-3" /><input className="flex-1 bg-transparent font-bold outline-none text-sm text-slate-800" value={item.n} onChange={(e) => { const n = [...editingItems]; n[i].n = e.target.value; setEditingItems(n); }} placeholder="일정명" />
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex-1 h-12 relative flex items-center bg-white px-4 rounded-2xl border border-slate-100 shadow-sm">
+                                                        <Icon name="clock" className="w-4 h-4 text-slate-300 mr-2" /><span className="flex-1 text-xs font-bold text-slate-700">{formatToAmPm(String(item.t || "09:00~10:00").split('~')[0])}</span>
+                                                        <input type="time" className="absolute inset-0 opacity-0 cursor-pointer" value={String(item.t || "09:00~10:00").split('~')[0]} onChange={(e) => { const n = [...editingItems]; const end = String(item.t || "09:00~10:00").split('~')[1]; n[i].t = `${e.target.value}~${end}`; setEditingItems(n); }} />
                                                     </div>
-                                                    <div className="flex items-center bg-white px-4 py-3 rounded-2xl border border-slate-100 shadow-sm">
-                                                        <Icon name="edit-3" className="w-4 h-4 text-slate-300 mr-3" />
-                                                        <input className="flex-1 bg-transparent font-bold outline-none text-sm text-slate-800" value={item.n} onChange={(e) => { const n = [...editingItems]; n[i].n = e.target.value; setEditingItems(n); }} placeholder="일정명" />
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="flex-1 h-12 relative flex items-center bg-white px-4 rounded-2xl border border-slate-100 shadow-sm">
-                                                            <Icon name="clock" className="w-4 h-4 text-slate-300 mr-2" />
-                                                            <span className="flex-1 text-xs font-bold text-slate-700">{formatToAmPm(String(item.t || "09:00~10:00").split('~')[0])}</span>
-                                                            <input type="time" className="absolute inset-0 opacity-0 cursor-pointer" value={String(item.t || "09:00~10:00").split('~')[0]} onChange={(e) => { const n = [...editingItems]; const end = String(item.t || "09:00~10:00").split('~')[1]; n[i].t = `${e.target.value}~${end}`; setEditingItems(n); }} />
-                                                        </div>
-                                                        <span className="text-slate-300">~</span>
-                                                        <div className="flex-1 h-12 relative flex items-center bg-white px-4 rounded-2xl border border-slate-100 shadow-sm">
-                                                            <span className="flex-1 text-xs font-bold text-slate-700">{formatToAmPm(String(item.t || "09:00~10:00").split('~')[1])}</span>
-                                                            <input type="time" className="absolute inset-0 opacity-0 cursor-pointer" value={String(item.t || "09:00~10:00").split('~')[1]} onChange={(e) => { const n = [...editingItems]; const start = String(item.t || "09:00~10:00").split('~')[0]; n[i].t = `${start}~${e.target.value}`; setEditingItems(n); }} />
-                                                        </div>
+                                                    <span className="text-slate-300">~</span>
+                                                    <div className="flex-1 h-12 relative flex items-center bg-white px-4 rounded-2xl border border-slate-100 shadow-sm">
+                                                        <span className="flex-1 text-xs font-bold text-slate-700">{formatToAmPm(String(item.t || "09:00~10:00").split('~')[1])}</span>
+                                                        <input type="time" className="absolute inset-0 opacity-0 cursor-pointer" value={String(item.t || "09:00~10:00").split('~')[1]} onChange={(e) => { const n = [...editingItems]; const start = String(item.t || "09:00~10:00").split('~')[0]; n[i].t = `${start}~${e.target.value}`; setEditingItems(n); }} />
                                                     </div>
                                                 </div>
                                             </div>
-                                        );
-                                    })}
+                                        </div>
+                                    ))}
                                     <button onClick={() => setEditingItems([...editingItems, { n: "", t: "12:00~13:00", type: 'once' }])} className="w-full py-5 border-2 border-dashed border-slate-200 rounded-[2rem] text-slate-400 font-bold active:bg-slate-50 transition-all">+ 일정 추가</button>
                                     <button onClick={() => {
                                         let conflict = false;
@@ -435,7 +404,7 @@
                                 <div className="py-6 flex flex-col items-center">
                                     <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 w-full max-w-[280px] text-center shadow-inner">
                                         <Icon name="lock" className="w-8 h-8 mx-auto text-slate-300 mb-4" />
-                                        <h4 className="font-extrabold text-slate-800 mb-6 text-sm text-center">Security PIN</h4>
+                                        <h4 className="font-extrabold text-slate-800 mb-6 text-sm text-center tracking-tighter">Security PIN</h4>
                                         <div className="flex justify-center gap-3 mb-8">
                                             {[...Array(4)].map((_, i) => (
                                                 <div key={i} className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${pinBuffer.length > i ? 'bg-blue-500 border-blue-500 scale-110' : 'border-slate-300'}`}></div>
@@ -454,14 +423,11 @@
                                 selectedSchedule.length > 0 ? (
                                     <div className="space-y-4 pb-12">
                                         {selectedSchedule.map((item, i) => {
-                                            const isHoli = item.type === 'holiday';
-                                            const isSpec = item.type === 'monthly' || item.type === 'once';
+                                            const isHoli = item.type === 'holiday', isSpec = item.type === 'monthly' || item.type === 'once';
                                             return (
                                                 <div key={i} className={`flex items-stretch p-6 rounded-[2.5rem] border shadow-sm transition-all active:scale-[0.98] ${item.isConflicted ? 'bg-red-50 border-red-200 animate-border-red' : isHoli ? 'bg-red-50 border-red-100' : isSpec ? 'bg-amber-50 border-amber-100' : 'bg-white border-slate-50'}`}>
                                                     <div className={`flex flex-col justify-center border-r pr-6 min-w-[95px] ${item.isConflicted ? 'border-red-200' : isHoli ? 'border-red-200/50' : isSpec ? 'border-amber-200/50' : 'border-slate-100/50'}`}>
-                                                        <span className={`text-[11px] font-black tracking-tighter italic ${item.isConflicted || isHoli ? 'text-red-600' : isSpec ? 'text-amber-700' : 'text-slate-800'}`}>
-                                                            {isHoli ? "00:00" : String(item.t || "").split('~')[0]}
-                                                        </span>
+                                                        <span className={`text-[11px] font-black tracking-tighter italic ${item.isConflicted || isHoli ? 'text-red-600' : isSpec ? 'text-amber-700' : 'text-slate-800'}`}>{isHoli ? "00:00" : String(item.t || "").split('~')[0]}</span>
                                                         <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{isHoli ? 'OFF' : 'Start'}</span>
                                                     </div>
                                                     <div className="pl-6 flex-1 flex flex-col justify-center overflow-hidden">
