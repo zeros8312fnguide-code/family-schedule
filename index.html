@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Family Schedule App</title>
+    <title>Family Schedule App v2.7 (Fixed Loading)</title>
     
     <!-- 모바일 앱 설정 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3652/3652191.png">
     
-    <!-- 라이브러리 로드 (안정적인 버전 고정) -->
+    <!-- 라이브러리 로드 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -28,11 +28,21 @@
             -webkit-tap-highlight-color: transparent; 
             user-select: none; 
             background-color: #f8fafc;
-            overscroll-behavior-y: contain; /* 당겨서 새로고침 방지 */
+            overscroll-behavior-y: contain;
         }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .sheet-transition { transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
         input, textarea { user-select: text !important; }
+        input[type="time"] { position: relative; width: 100%; height: 100%; background: transparent; cursor: pointer; }
+        input[type="time"]::-webkit-calendar-picker-indicator {
+            position: absolute; left: 0; top: 0; width: 100%; height: 100%; margin: 0; padding: 0; cursor: pointer; opacity: 0; 
+        }
+        @keyframes pulse-red {
+            0% { border-color: rgba(239, 68, 68, 0.2); }
+            50% { border-color: rgba(239, 68, 68, 0.8); }
+            100% { border-color: rgba(239, 68, 68, 0.2); }
+        }
+        .animate-border-red { animation: pulse-red 2s infinite; border-width: 2px; }
     </style>
 </head>
 <body class="bg-slate-50">
@@ -41,37 +51,26 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useCallback } = React;
 
-        // 아이콘 컴포넌트 (방어적 렌더링 추가)
         const Icon = ({ name, className = "w-4 h-4" }) => {
             const icons = {
                 'chevron-left': <path d="m15 18-6-6 6-6"/>,
                 'chevron-right': <path d="m9 18 6-6-6-6"/>,
                 'x': <path d="M18 6 6 18M6 6l12 12"/>,
-                'unlock': (
-                    <React.Fragment>
-                        <path d="M7 11V7a5 5 0 0 1 9.9-1"/><rect width="18" height="11" x="3" y="11" rx="2"/><circle cx="12" cy="16" r="1"/>
-                    </React.Fragment>
-                ),
-                'lock': (
-                    <React.Fragment>
-                        <rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/>
-                    </React.Fragment>
-                ),
-                'trash-2': (
-                    <React.Fragment>
-                        <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/>
-                    </React.Fragment>
-                ),
+                'unlock': <React.Fragment><path d="M7 11V7a5 5 0 0 1 9.9-1"/><rect width="18" height="11" x="3" y="11" rx="2"/><circle cx="12" cy="16" r="1"/></React.Fragment>,
+                'lock': <React.Fragment><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></React.Fragment>,
+                'trash-2': <React.Fragment><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></React.Fragment>,
                 'edit-3': <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>,
-                'clock': (
+                'clock': <React.Fragment><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></React.Fragment>,
+                'calendar-off': <React.Fragment><path d="M4.18 4.18 19.82 19.82M8 2v2M12 2v2M16 2v2M3 8h1M7 8h4M15 8h6M17 12l2 2M3 12v8a2 2 0 0 0 2 2h13.17M21 15.35V6a2 2 0 0 0-2-2H9.5"/></React.Fragment>,
+                'calendar': <React.Fragment><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></React.Fragment>,
+                'repeat': <React.Fragment><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></React.Fragment>,
+                'cycle': <React.Fragment><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></React.Fragment>,
+                'gift': <React.Fragment><polyline points="20 12 20 22 4 22 4 12"/><rect width="20" height="5" x="2" y="7" rx="2"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></React.Fragment>,
+                'alert-triangle': (
                     <React.Fragment>
-                        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-                    </React.Fragment>
-                ),
-                'star': <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
-                'calendar-off': (
-                    <React.Fragment>
-                        <path d="M4.18 4.18 19.82 19.82M8 2v2M12 2v2M16 2v2M3 8h1M7 8h4M15 8h6M17 12l2 2M3 12v8a2 2 0 0 0 2 2h13.17M21 15.35V6a2 2 0 0 0-2-2H9.5"/>
+                        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                        <line x1="12" y1="17" x2="12.01" y2="17"/>
                     </React.Fragment>
                 )
             };
@@ -82,8 +81,7 @@
             );
         };
 
-        // [설정] Firebase 설정
-        const firebaseConfig = {
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
             apiKey: "AIzaSyCoL1JMcH9fDjtXUkn-XqQDfucRZM5qrSI",
             authDomain: "family-app-b83b9.firebaseapp.com",
             projectId: "family-app-b83b9",
@@ -91,13 +89,10 @@
             messagingSenderId: "278533683062",
             appId: "1:278533683062:web:0337a8cde210b6f28eac57"
         };
-
-        const appId = "family-scheduler";
+        const appId = typeof __app_id !== 'undefined' ? __app_id : "family-scheduler";
         const EDIT_PIN = "1234";
 
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
 
@@ -112,161 +107,222 @@
             const [pinBuffer, setPinBuffer] = useState("");
             const [masterData, setMasterData] = useState(null);
             const [editingItems, setEditingItems] = useState([]);
+            const [uiMessage, setUiMessage] = useState(null);
+            const [holidays, setHolidays] = useState({});
+            const [pendingConflict, setPendingConflict] = useState(null);
 
-            // 1. 인증 처리
+            const showMessage = (msg) => { setUiMessage(msg); setTimeout(() => setUiMessage(null), 2000); };
+
+            const formatToAmPm = (timeStr) => {
+                if (!timeStr || !timeStr.includes(':')) return "";
+                const [hStr, mStr] = timeStr.split(':');
+                const h = parseInt(hStr, 10);
+                const ampm = h >= 12 ? '오후' : '오전';
+                const hour12 = h % 12 || 12;
+                return `${ampm} ${hour12}:${mStr}`;
+            };
+
+            const timeToMinutes = (t) => {
+                if (!t || !t.includes(':')) return 0;
+                const [h, m] = t.split(':').map(Number);
+                return h * 60 + m;
+            };
+
+            const checkOverlap = (timeA, timeB) => {
+                if (!timeA.includes('~') || !timeB.includes('~')) return false;
+                const [startAStr, endAStr] = timeA.split('~');
+                const [startBStr, endBStr] = timeB.split('~');
+                const startA = timeToMinutes(startAStr), endA = timeToMinutes(endAStr);
+                const startB = timeToMinutes(startBStr), endB = timeToMinutes(endBStr);
+                return startA < endB && startB < endA;
+            };
+
+            // 1. 공휴일 API 데이터 (Nager.Date)
             useEffect(() => {
-                const unsubscribe = auth.onAuthStateChanged((u) => {
-                    if (u) setUser(u);
-                    else auth.signInAnonymously().catch(console.error);
-                });
+                const fetchHolidays = async () => {
+                    try {
+                        const years = [new Date().getFullYear(), new Date().getFullYear() + 1];
+                        const allHolidays = {};
+                        for (const year of years) {
+                            const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/KR`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                data.forEach(h => { allHolidays[h.date] = h.localName; });
+                            }
+                        }
+                        setHolidays(allHolidays);
+                    } catch (err) { console.error("Holiday API Error:", err); }
+                };
+                fetchHolidays();
+            }, []);
+
+            // 2. Firebase 인증
+            useEffect(() => {
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await auth.signInWithCustomToken(__initial_auth_token);
+                        else await auth.signInAnonymously();
+                    } catch (err) { auth.signInAnonymously().catch(console.error); }
+                };
+                initAuth();
+                const unsubscribe = auth.onAuthStateChanged((u) => { if (u) setUser(u); });
                 return () => unsubscribe();
             }, []);
 
-            // 2. 실시간 데이터 동기화
+            // 3. 실시간 데이터 동기화 + [중요] 초기 데이터 자동 생성 로직
             useEffect(() => {
                 if (!user) return;
-                const docRef = db.doc(`artifacts/${appId}/public/data/schedules/master`);
+                const docRef = db.doc(`artifacts/${appId}/public/data/schedules/v2_1_master`);
                 const unsubscribe = docRef.onSnapshot((docSnap) => {
                     if (docSnap.exists) {
                         setMasterData(docSnap.data());
                     } else {
+                        // DB에 데이터가 없는 경우 초기화 데이터 강제 주입
                         const initialData = {
                             SeoYoon: { 
-                                "1": [{n:"덕스(영어)", t:"15:30~18:30"}], 
-                                "2":[{n:"아담리즈", t:"14:30~16:30"}, {n:"미술학원", t:"16:30~18:20"}], 
-                                "3":[{n:"아이비 영어 도서관", t:"14:30~16:30"}, {n:"CMS 수업", t:"19:30~21:00"}], 
-                                "4":[{n:"몬테소리 (한국사)", t:"15:00~16:00"}, {n:"플라톤", t:"16:00~17:50"}, {n:"코딩 수업", t:"21:00~21:40"}], 
-                                "5":[{n:"덕스(영어)", t:"15:30~18:30"}] 
+                                weekly: { 
+                                    "1": [{n:"덕스(영어)", t:"15:30~18:30"}], 
+                                    "2":[{n:"아담리즈", t:"14:30~16:30"}, {n:"미술학원", t:"16:30~18:20"}], 
+                                    "3":[{n:"아이비 영어 도서관", t:"14:30~16:30"}, {n:"CMS 수업", t:"19:30~21:00"}], 
+                                    "4":[{n:"몬테소리 (한국사)", t:"15:00~16:00"}, {n:"플라톤", t:"16:00~17:50"}, {n:"코딩 수업", t:"21:00~21:40"}], 
+                                    "5":[{n:"덕스(영어)", t:"15:30~18:30"}] 
+                                }, 
+                                monthly: { 
+                                    "3-2": [{n:"🔭 천문대 수업", t:"18:20~21:30"}],
+                                    "2-3": [{n:"🎨 미술학원 특강", t:"17:00~19:00"}],
+                                    "4-3": [{n:"🎨 미술학원 특강", t:"17:00~19:00"}] 
+                                },
+                                once: {} 
                             },
                             YoonSung: { 
-                                "1": [{n:"소한이 한글", t:"14:00~15:00"}, {n:"아이비 영어 도서관", t:"15:30~17:00"}, {n:"종이접기", t:"17:20~18:20"}], 
-                                "2":[{n:"그림책여행", t:"14:30~16:00"}, {n:"미술학원", t:"16:50~18:40"}], 
-                                "3":[{n:"아이비 영어 도서관", t:"14:30~16:30"}, {n:"수영", t:"18:00~19:00"}], 
-                                "4":[{n:"몬테소리", t:"14:00~15:00"}, {n:"아담리즈", t:"16:30~18:10"}], 
-                                "5":[{n:"소한이 한글", t:"14:00~15:00"}, {n:"아이비 영어 도서관", t:"15:30~17:00"}, {n:"종이접기", t:"17:20~18:20"}] 
+                                weekly: { 
+                                    "1": [{n:"소한이 한글", t:"14:00~15:00"}, {n:"아이비 영어 도서관", t:"15:30~17:00"}, {n:"종이접기", t:"17:20~18:20"}], 
+                                    "2": [{n:"그림책여행", t:"14:30~16:00"}, {n:"미술학원", t:"16:50~18:40"}], 
+                                    "3": [{n:"아이비 영어 도서관", t:"14:30~16:30"}, {n:"수영", t:"18:00~19:00"}], 
+                                    "4": [{n:"몬테소리", t:"14:00~15:00"}, {n:"아담리즈", t:"16:30~18:10"}], 
+                                    "5": [{n:"소한이 한글", t:"14:00~15:00"}, {n:"아이비 영어 도서관", t:"15:30~17:00"}, {n:"종이접기", t:"17:20~18:20"}] 
+                                }, 
+                                monthly: {}, once: {} 
                             }
                         };
-                        docRef.set(initialData);
-                        setMasterData(initialData);
+                        docRef.set(initialData).then(() => setMasterData(initialData)).catch(console.error);
                     }
                 }, (error) => {
                     console.error("Firestore Error:", error);
+                    showMessage("데이터베이스 연결 오류");
                 });
                 return () => unsubscribe();
             }, [user]);
 
-            // 캘린더 날짜 계산 (메모이제이션 강화)
-            const calendarDays = useMemo(() => {
-                try {
-                    const y = currentDate.getFullYear(), m = currentDate.getMonth();
-                    const first = new Date(y, m, 1).getDay();
-                    const last = new Date(y, m + 1, 0).getDate();
-                    const d = [];
-                    for (let i = 0; i < first; i++) d.push(null);
-                    for (let i = 1; i <= last; i++) d.push(new Date(y, m, i));
-                    return d;
-                } catch (e) {
-                    return [];
-                }
-            }, [currentDate]);
+            const getHolidayName = useCallback((date) => {
+                const dateStr = date.toISOString().split('T')[0];
+                return holidays[dateStr] || null;
+            }, [holidays]);
 
-            // 특수 일정 로직 (방어적 코딩)
-            const getSpecialEvents = useCallback((date, childId) => {
-                if (!date || childId !== 'SeoYoon') return [];
-                try {
-                    const day = date.getDay();
-                    const weekNum = Math.ceil(date.getDate() / 7);
-                    const extras = [];
-                    if (day === 2 && weekNum === 3) extras.push({ n: "🔭 천문대 수업", t: "18:20~21:30", s: true });
-                    if (day === 3 && (weekNum === 2 || weekNum === 4)) extras.push({ n: "🎨 미술학원 특강", t: "17:00~19:00", s: true });
-                    return extras;
-                } catch (e) {
-                    return [];
-                }
+            const getWeekOfMonth = useCallback((date) => {
+                const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+                return Math.ceil((date.getDate() + startOfMonth.getDay()) / 7);
             }, []);
 
-            // 통합 일정 계산
             const getCombinedSchedule = useCallback((date, childId) => {
                 if (!masterData || !date) return [];
-                try {
-                    const dayKey = String(date.getDay());
-                    const regular = masterData?.[childId]?.[dayKey] || [];
-                    const special = getSpecialEvents(date, childId);
-                    return [...regular, ...special].sort((a, b) => String(a.t || "").localeCompare(String(b.t || "")));
-                } catch (e) {
-                    return [];
-                }
-            }, [masterData, getSpecialEvents]);
+                const holiday = getHolidayName(date);
+                const day = date.getDay();
+                const weekNum = getWeekOfMonth(date);
+                const dateStr = date.toISOString().split('T')[0];
+                
+                const weekly = holiday ? [] : (masterData[childId]?.weekly?.[String(day)] || []).map(i => ({...i, type: 'weekly'}));
+                const monthly = holiday ? [] : (masterData[childId]?.monthly?.[`${weekNum}-${day}`] || []).map(i => ({...i, type: 'monthly'}));
+                const once = (masterData[childId]?.once?.[dateStr] || []).map(i => ({...i, type: 'once'}));
+                
+                const rawSchedule = [...weekly, ...monthly, ...once].sort((a, b) => String(a.t || "").localeCompare(String(b.t || "")));
+                const schedule = rawSchedule.map((item, idx) => {
+                    const isConflicted = rawSchedule.some((other, oIdx) => idx !== oIdx && checkOverlap(item.t, other.t));
+                    return { ...item, isConflicted };
+                });
+                if (holiday) schedule.unshift({ n: `🚩 ${holiday}`, t: "00:00~23:59", type: 'holiday', s: true });
+                return schedule;
+            }, [masterData, getWeekOfMonth, getHolidayName]);
 
-            const startEditAttempt = () => {
-                if (isEditMode) {
-                    setIsEditMode(false);
-                } else {
-                    setPinBuffer("");
-                    setIsPinInputOpen(true);
-                }
-            };
+            const calendarDays = useMemo(() => {
+                const y = currentDate.getFullYear(), m = currentDate.getMonth();
+                const first = new Date(y, m, 1).getDay();
+                const last = new Date(y, m + 1, 0).getDate();
+                const d = [];
+                for (let i = 0; i < first; i++) d.push(null);
+                for (let i = 1; i <= last; i++) d.push(new Date(y, m, i));
+                return d;
+            }, [currentDate]);
+
+            if (!masterData) return (
+                <div className="h-screen flex flex-col items-center justify-center bg-white space-y-4">
+                    <div className="w-10 h-10 border-4 border-slate-100 border-t-blue-500 rounded-full animate-spin"></div>
+                    <p className="text-slate-400 font-bold uppercase text-xs tracking-widest animate-pulse">Syncing Cloud...</p>
+                </div>
+            );
 
             const verifyPin = () => {
                 if (pinBuffer === EDIT_PIN) {
                     setIsPinInputOpen(false);
-                    const dayKey = String(selectedDate.getDay());
-                    setEditingItems(JSON.parse(JSON.stringify(masterData?.[activeChild]?.[dayKey] || [])));
+                    const schedule = getCombinedSchedule(selectedDate, activeChild).filter(i => i.type !== 'holiday');
+                    setEditingItems(schedule);
                     setIsEditMode(true);
-                } else {
-                    alert("PIN 번호가 일치하지 않습니다.");
-                    setPinBuffer("");
-                }
+                } else { showMessage("PIN 번호 불일치"); setPinBuffer(""); }
             };
 
-            const saveToCloud = async () => {
+            const finalSaveToCloud = async () => {
+                setPendingConflict(null);
+                const day = selectedDate.getDay();
+                const weekNum = getWeekOfMonth(selectedDate);
+                const dateStr = selectedDate.toISOString().split('T')[0];
+                const updatedChild = JSON.parse(JSON.stringify(masterData[activeChild]));
+                updatedChild.weekly = { ...(updatedChild.weekly || {}), [String(day)]: [] };
+                updatedChild.monthly = { ...(updatedChild.monthly || {}), [`${weekNum}-${day}`]: [] };
+                updatedChild.once = { ...(updatedChild.once || {}), [dateStr]: [] };
+                editingItems.forEach(({ type, n, t }) => {
+                    if (type === 'weekly') updatedChild.weekly[String(day)].push({ n, t });
+                    else if (type === 'monthly') updatedChild.monthly[`${weekNum}-${day}`].push({ n, t });
+                    else updatedChild.once[dateStr].push({ n, t });
+                });
                 try {
-                    const docRef = db.doc(`artifacts/${appId}/public/data/schedules/master`);
-                    const dayKey = String(selectedDate.getDay());
-                    const updated = { 
-                        ...masterData, 
-                        [activeChild]: { 
-                            ...(masterData?.[activeChild] || {}), 
-                            [dayKey]: editingItems 
-                        } 
-                    };
-                    await docRef.set(updated);
+                    await db.doc(`artifacts/${appId}/public/data/schedules/v2_1_master`).set({ ...masterData, [activeChild]: updatedChild });
                     setIsEditMode(false);
-                    alert("성공적으로 저장되었습니다.");
-                } catch (e) {
-                    alert("저장에 실패했습니다. 권한을 확인하세요.");
-                }
+                    showMessage("저장 완료!");
+                } catch (e) { showMessage("저장 실패"); }
             };
-
-            const handleDateSelection = (date) => {
-                if (!date) return;
-                setSelectedDate(date);
-                setIsSheetOpen(true);
-            };
-
-            // 데이터 로딩 중 화면
-            if (!masterData) return (
-                <div className="h-screen flex flex-col items-center justify-center bg-white space-y-4">
-                    <div className="w-10 h-10 border-4 border-slate-100 border-t-blue-500 rounded-full animate-spin"></div>
-                    <p className="text-slate-400 font-bold text-xs tracking-widest uppercase">Initializing</p>
-                </div>
-            );
 
             const theme = activeChild === 'SeoYoon' ? 'blue' : 'green';
             const selectedSchedule = getCombinedSchedule(selectedDate, activeChild);
 
             return (
                 <div className="flex flex-col min-h-screen bg-slate-50 text-slate-900 pb-20 overflow-x-hidden">
-                    <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-4 pt-12 md:pt-4">
+                    {uiMessage && <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-slate-800 text-white px-6 py-3 rounded-full text-xs font-bold shadow-2xl animate-in fade-in slide-in-from-top-4">{uiMessage}</div>}
+
+                    {pendingConflict && (
+                        <div className="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-6">
+                            <div className="bg-white rounded-[2.5rem] w-full max-w-sm p-8 shadow-2xl animate-in zoom-in duration-300">
+                                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                                    <Icon name="alert-triangle" className="w-8 h-8" />
+                                </div>
+                                <h4 className="text-xl font-black text-slate-800 text-center mb-2">시간 중복 감지</h4>
+                                <p className="text-slate-500 text-center text-sm leading-relaxed mb-8">
+                                    일정 시간이 겹칩니다. 계속 등록하시겠습니까?
+                                </p>
+                                <div className="flex gap-3">
+                                    <button onClick={() => setPendingConflict(null)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold">취소</button>
+                                    <button onClick={finalSaveToCloud} className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-bold">계속 등록</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-4 pt-12 md:pt-4 text-center">
                         <div className="flex items-center justify-between max-w-md mx-auto w-full">
                             <h1 className="text-xl font-black text-slate-800 tracking-tighter">Family App</h1>
                             <div className="flex p-1 bg-slate-100 rounded-full">
                                 {['SeoYoon', 'YoonSung'].map(id => (
-                                    <button 
-                                        key={id} 
-                                        onClick={() => { setActiveChild(id); setIsEditMode(false); setIsPinInputOpen(false); }} 
-                                        className={`px-5 py-1.5 rounded-full text-xs font-bold transition-all ${activeChild === id ? (id === 'SeoYoon' ? 'bg-blue-600' : 'bg-green-700') + ' text-white shadow-md' : 'text-slate-500'}`}
-                                    >
+                                    <button key={id} onClick={() => { setActiveChild(id); setIsEditMode(false); setIsPinInputOpen(false); }} 
+                                        className={`px-5 py-1.5 rounded-full text-xs font-bold transition-all ${activeChild === id ? (id === 'SeoYoon' ? 'bg-blue-600' : 'bg-green-700') + ' text-white shadow-md' : 'text-slate-400'}`}>
                                         {id === 'SeoYoon' ? '서윤' : '윤성'}
                                     </button>
                                 ))}
@@ -277,10 +333,10 @@
                     <main className="flex-1 p-4 max-w-md mx-auto w-full">
                         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden mb-6">
                             <div className="flex items-center justify-between p-6 pb-2">
-                                <h2 className="text-lg font-extrabold">{currentDate.getFullYear()}년 {currentDate.getMonth() + 1}월</h2>
+                                <h2 className="text-lg font-extrabold text-slate-800">{currentDate.getFullYear()}년 {currentDate.getMonth() + 1}월</h2>
                                 <div className="flex space-x-1">
-                                    <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="p-2 bg-slate-50 rounded-full active:scale-90 transition-transform"><Icon name="chevron-left" className="w-5 h-5 text-slate-400" /></button>
-                                    <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))} className="p-2 bg-slate-50 rounded-full active:scale-90 transition-transform"><Icon name="chevron-right" className="w-5 h-5 text-slate-400" /></button>
+                                    <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="p-2 active:scale-90 transition-transform"><Icon name="chevron-left" className="text-slate-400" /></button>
+                                    <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))} className="p-2 active:scale-90 transition-transform"><Icon name="chevron-right" className="text-slate-400" /></button>
                                 </div>
                             </div>
                             <div className="grid grid-cols-7 text-center px-4 pt-4 border-b border-slate-50 pb-2">
@@ -291,20 +347,20 @@
                             <div className="grid grid-cols-7 gap-px bg-slate-100/30">
                                 {calendarDays.map((date, idx) => {
                                     if (!date) return <div key={`empty-${idx}`} className="bg-white h-20"></div>;
-                                    const dateStr = date.toDateString();
-                                    const isSelected = selectedDate.toDateString() === dateStr;
+                                    const isSelected = selectedDate.toDateString() === date.toDateString();
+                                    const isToday = new Date().toDateString() === date.toDateString();
+                                    const holidayName = getHolidayName(date);
                                     const items = getCombinedSchedule(date, activeChild);
-                                    const isToday = new Date().toDateString() === dateStr;
+                                    const dayColor = (date.getDay() === 0 || holidayName) ? 'text-red-500' : date.getDay() === 6 ? 'text-blue-500' : 'text-slate-700';
+
                                     return (
-                                        <button 
-                                            key={date.toISOString()} 
-                                            onClick={() => handleDateSelection(date)} 
-                                            className="bg-white h-20 flex flex-col items-center justify-start pt-3 relative active:bg-slate-50 transition-colors"
-                                        >
+                                        <button key={date.toISOString()} onClick={() => { setSelectedDate(date); setIsSheetOpen(true); }} className="bg-white h-20 flex flex-col items-center justify-start pt-3 relative active:bg-slate-50 transition-colors">
                                             {isSelected && <div className={`absolute inset-1.5 rounded-2xl border-2 border-${theme}-400 bg-${theme}-50 opacity-50`}></div>}
-                                            <span className={`text-sm font-bold z-10 ${isToday ? 'bg-slate-900 text-white w-6 h-6 flex items-center justify-center rounded-full text-[10px]' : date.getDay() === 0 ? 'text-red-500' : date.getDay() === 6 ? 'text-blue-500' : 'text-slate-700'}`}>{date.getDate()}</span>
+                                            <span className={`text-sm font-bold z-10 ${isToday ? 'bg-slate-900 text-white w-6 h-6 flex items-center justify-center rounded-full text-[10px]' : dayColor}`}>{date.getDate()}</span>
                                             <div className="flex flex-wrap justify-center gap-0.5 mt-2 px-1 z-10">
-                                                {items.map((item, i) => <div key={`${dateStr}-${i}`} className={`w-1 h-1 rounded-full ${item.s ? 'bg-red-500' : `bg-${theme}-500`}`}></div>)}
+                                                {items.map((item, i) => (
+                                                    <div key={i} className={`w-1 h-1 rounded-full ${item.isConflicted ? 'bg-red-500 scale-125' : item.type === 'holiday' ? 'bg-red-300' : (item.type === 'monthly' || item.type === 'once') ? 'bg-amber-500' : `bg-${theme}-500`}`}></div>
+                                                ))}
                                             </div>
                                         </button>
                                     );
@@ -313,105 +369,121 @@
                         </div>
                     </main>
 
-                    {/* Sheet Overlay */}
-                    <div 
-                        className={`fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${isSheetOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} 
-                        onClick={() => { if (!isEditMode && !isPinInputOpen) setIsSheetOpen(false); }} 
-                    />
-
-                    {/* Bottom Sheet */}
-                    <div className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[2.5rem] shadow-2xl sheet-transition transform ${isSheetOpen ? 'translate-y-0' : 'translate-y-full'}`}>
+                    <div className={`fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity ${isSheetOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => { if (!isEditMode && !isPinInputOpen) setIsSheetOpen(false); }} />
+                    <div className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[2.5rem] shadow-2xl sheet-transition transform ${isSheetOpen ? 'translate-y-0' : 'translate-y-full'}`} style={{maxHeight: '92vh'}}>
                         <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mt-4 mb-2" />
-                        
                         <div className="px-8 py-6 flex items-center justify-between border-b border-slate-50">
-                            <div className="flex-1 pr-4 overflow-hidden">
-                                <p className={`text-[10px] font-black uppercase tracking-widest mb-1 truncate text-${theme}-600`}>Daily Schedule</p>
-                                <h3 className="text-xl font-black truncate">{selectedDate.getDate()}일 ({['일','월','화','수','목','금','토'][selectedDate.getDay()]})</h3>
+                            <div className="flex-1 pr-4">
+                                <p className={`text-[10px] font-black uppercase tracking-widest mb-1 text-${theme}-600`}>Schedule Manager</p>
+                                <h3 className="text-xl font-black text-slate-800">{selectedDate.getDate()}일 ({['일','월','화','수','목','금','토'][selectedDate.getDay()]}) {getHolidayName(selectedDate) && <span className="text-red-500 ml-1 text-sm">[{getHolidayName(selectedDate)}]</span>}</h3>
                             </div>
-                            <button 
-                                onClick={startEditAttempt} 
-                                className={`flex-shrink-0 flex items-center space-x-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all active:scale-95 ${isEditMode ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600 shadow-sm'}`}
-                            >
+                            <button onClick={() => { if (isEditMode) setIsEditMode(false); else { setPinBuffer(""); setIsPinInputOpen(true); } }} className={`flex items-center space-x-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all active:scale-95 ${isEditMode ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600 shadow-sm'}`}>
                                 {isEditMode ? <><Icon name="x" className="w-4 h-4" /> 취소</> : <><Icon name="unlock" className="w-3.5 h-3.5" /> 편집</>}
                             </button>
                         </div>
 
-                        <div className="p-8 space-y-4 max-h-[60vh] overflow-y-auto no-scrollbar">
+                        <div className="p-8 space-y-4 overflow-y-auto no-scrollbar" style={{maxHeight: '70vh'}}>
+                            {!isPinInputOpen && isEditMode && (
+                                <div className="space-y-6 pb-12">
+                                    {editingItems.map((item, i) => {
+                                        const isInternalConflict = editingItems.some((other, oIdx) => i !== oIdx && checkOverlap(item.t, other.t));
+                                        return (
+                                            <div key={i} className={`flex flex-col p-6 rounded-[2.5rem] border bg-slate-50 relative animate-in fade-in transition-all ${isInternalConflict ? 'animate-border-red border-red-500' : 'border-slate-200'}`}>
+                                                <button onClick={() => setEditingItems(editingItems.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 p-2 bg-red-500 text-white rounded-full shadow-lg"><Icon name="trash-2" className="w-4 h-4" /></button>
+                                                <div className="space-y-4">
+                                                    <div className="flex bg-white p-1 rounded-2xl border border-slate-100 shadow-sm">
+                                                        {['weekly', 'monthly', 'once'].map(type => (
+                                                            <button key={type} onClick={() => { const n = [...editingItems]; n[i].type = type; setEditingItems(n); }} className={`flex-1 py-2 text-[9px] font-black rounded-xl transition-all flex items-center justify-center gap-1 ${item.type === type ? (type === 'weekly' ? `bg-${theme}-600` : 'bg-amber-500') + ' text-white shadow-md' : 'text-slate-400'}`}>
+                                                                <Icon name={type === 'weekly' ? 'repeat' : type === 'monthly' ? 'cycle' : 'calendar'} className="w-3 h-3" /> {type === 'weekly' ? '매주' : type === 'monthly' ? '매월' : '오늘'}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                    <div className="flex items-center bg-white px-4 py-3 rounded-2xl border border-slate-100 shadow-sm">
+                                                        <Icon name="edit-3" className="w-4 h-4 text-slate-300 mr-3" />
+                                                        <input className="flex-1 bg-transparent font-bold outline-none text-sm text-slate-800" value={item.n} onChange={(e) => { const n = [...editingItems]; n[i].n = e.target.value; setEditingItems(n); }} placeholder="일정명" />
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="flex-1 h-12 relative flex items-center bg-white px-4 rounded-2xl border border-slate-100 shadow-sm">
+                                                            <Icon name="clock" className="w-4 h-4 text-slate-300 mr-2" />
+                                                            <span className="flex-1 text-xs font-bold text-slate-700">{formatToAmPm(String(item.t || "09:00~10:00").split('~')[0])}</span>
+                                                            <input type="time" className="absolute inset-0 opacity-0 cursor-pointer" value={String(item.t || "09:00~10:00").split('~')[0]} onChange={(e) => { const n = [...editingItems]; const end = String(item.t || "09:00~10:00").split('~')[1]; n[i].t = `${e.target.value}~${end}`; setEditingItems(n); }} />
+                                                        </div>
+                                                        <span className="text-slate-300">~</span>
+                                                        <div className="flex-1 h-12 relative flex items-center bg-white px-4 rounded-2xl border border-slate-100 shadow-sm">
+                                                            <span className="flex-1 text-xs font-bold text-slate-700">{formatToAmPm(String(item.t || "09:00~10:00").split('~')[1])}</span>
+                                                            <input type="time" className="absolute inset-0 opacity-0 cursor-pointer" value={String(item.t || "09:00~10:00").split('~')[1]} onChange={(e) => { const n = [...editingItems]; const start = String(item.t || "09:00~10:00").split('~')[0]; n[i].t = `${start}~${e.target.value}`; setEditingItems(n); }} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    <button onClick={() => setEditingItems([...editingItems, { n: "", t: "12:00~13:00", type: 'once' }])} className="w-full py-5 border-2 border-dashed border-slate-200 rounded-[2rem] text-slate-400 font-bold active:bg-slate-50 transition-all">+ 일정 추가</button>
+                                    <button onClick={() => {
+                                        let conflict = false;
+                                        for(let i=0; i<editingItems.length; i++) {
+                                            for(let j=i+1; j<editingItems.length; j++) {
+                                                if(checkOverlap(editingItems[i].t, editingItems[j].t)) { conflict = true; break; }
+                                            }
+                                        }
+                                        if(conflict) setPendingConflict(true); else finalSaveToCloud();
+                                    }} className={`w-full py-5 bg-${theme}-600 text-white rounded-[2.5rem] font-black shadow-xl mt-6 active:scale-95 transition-transform`}>저장하기</button>
+                                </div>
+                            )}
+
                             {isPinInputOpen && (
-                                <div className="py-4 flex flex-col items-center animate-in fade-in zoom-in duration-300">
+                                <div className="py-6 flex flex-col items-center">
                                     <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 w-full max-w-[280px] text-center shadow-inner">
-                                        <div className="flex justify-center gap-3 mb-8 mt-4">
+                                        <Icon name="lock" className="w-8 h-8 mx-auto text-slate-300 mb-4" />
+                                        <h4 className="font-extrabold text-slate-800 mb-6 text-sm text-center">Security PIN</h4>
+                                        <div className="flex justify-center gap-3 mb-8">
                                             {[...Array(4)].map((_, i) => (
-                                                <div key={`pin-${i}`} className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${pinBuffer.length > i ? 'bg-blue-500 border-blue-500 scale-110' : 'border-slate-300'}`}></div>
+                                                <div key={i} className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${pinBuffer.length > i ? 'bg-blue-500 border-blue-500 scale-110' : 'border-slate-300'}`}></div>
                                             ))}
                                         </div>
                                         <div className="grid grid-cols-3 gap-2">
                                             {[1,2,3,4,5,6,7,8,9, 'C', 0, 'OK'].map((num) => (
-                                                <button key={`num-${num}`} onClick={() => {
-                                                    if (num === 'C') setPinBuffer("");
-                                                    else if (num === 'OK') verifyPin();
-                                                    else if (pinBuffer.length < 4) setPinBuffer(pinBuffer + num);
-                                                }} className={`h-12 flex items-center justify-center rounded-2xl font-bold active:scale-90 transition-all ${num === 'OK' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700 shadow-sm'}`}>
-                                                    {num}
-                                                </button>
+                                                <button key={num} onClick={() => { if (num === 'C') setPinBuffer(""); else if (num === 'OK') verifyPin(); else if (pinBuffer.length < 4) setPinBuffer(pinBuffer + num); }} className={`h-12 flex items-center justify-center rounded-2xl font-bold active:scale-90 transition-all ${num === 'OK' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700 shadow-sm'}`}>{num}</button>
                                             ))}
                                         </div>
                                     </div>
-                                </div>
-                            )}
-
-                            {!isPinInputOpen && isEditMode && (
-                                <div className="space-y-4 pb-10">
-                                    {editingItems.map((item, i) => (
-                                        <div key={`edit-${i}`} className="flex flex-col p-5 bg-slate-50 rounded-[2rem] border border-slate-200 relative">
-                                            <button onClick={() => setEditingItems(editingItems.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 p-2 bg-red-500 text-white rounded-full shadow-lg active:scale-90"><Icon name="trash-2" className="w-4 h-4" /></button>
-                                            <div className="space-y-3">
-                                                <div className="flex items-center bg-white px-4 py-2 rounded-xl border border-slate-100 shadow-sm">
-                                                    <Icon name="edit-3" className="w-3.5 h-3.5 text-slate-300 mr-2" />
-                                                    <input className="flex-1 bg-transparent font-bold outline-none text-sm" value={String(item.n || "")} onChange={(e) => { const n = [...editingItems]; n[i].n = e.target.value; setEditingItems(n); }} placeholder="수업명" />
-                                                </div>
-                                                <div className="flex items-center bg-white px-4 py-2 rounded-xl border border-slate-100 shadow-sm">
-                                                    <Icon name="clock" className="w-3.5 h-3.5 text-slate-300 mr-2" />
-                                                    <input className="flex-1 bg-transparent text-xs text-slate-500 outline-none" value={String(item.t || "")} onChange={(e) => { const n = [...editingItems]; n[i].t = e.target.value; setEditingItems(n); }} placeholder="12:00~13:00" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    <button onClick={() => setEditingItems([...editingItems, { n: "", t: "" }])} className="w-full py-5 border-2 border-dashed border-slate-200 rounded-[2rem] text-slate-400 font-bold active:bg-slate-50 transition-colors">+ 일정 추가</button>
-                                    <button onClick={saveToCloud} className={`w-full py-5 bg-${theme}-600 text-white rounded-[2rem] font-black shadow-xl mt-6 active:scale-95 transition-transform`}>클라우드 저장</button>
                                 </div>
                             )}
 
                             {!isPinInputOpen && !isEditMode && (
                                 selectedSchedule.length > 0 ? (
-                                    <div className="space-y-4 pb-10">
-                                        {selectedSchedule.map((item, i) => (
-                                            <div key={`view-${selectedDate.toDateString()}-${i}`} className={`flex items-stretch p-6 rounded-[2.5rem] border shadow-sm transition-all active:scale-[0.98] ${item.s ? 'bg-red-50 border-red-100' : 'bg-white border-slate-50'}`}>
-                                                <div className="flex flex-col justify-center border-r border-slate-100/50 pr-6 min-w-[90px]">
-                                                    <span className={`text-xs font-black tracking-tighter italic ${item.s ? 'text-red-600' : 'text-slate-800'}`}>{String(item.t || "").split('~')[0]}</span>
-                                                    <span className="text-[10px] text-slate-400 font-medium">START</span>
-                                                </div>
-                                                <div className="pl-6 flex-1 flex flex-col justify-center overflow-hidden">
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        {item.s && <Icon name="star" className="w-3.5 h-3.5 text-red-500 fill-red-500" />}
-                                                        <h4 className={`text-lg font-black leading-tight truncate ${item.s ? 'text-red-800' : 'text-slate-800'}`}>{String(item.n || "")}</h4>
+                                    <div className="space-y-4 pb-12">
+                                        {selectedSchedule.map((item, i) => {
+                                            const isHoli = item.type === 'holiday';
+                                            const isSpec = item.type === 'monthly' || item.type === 'once';
+                                            return (
+                                                <div key={i} className={`flex items-stretch p-6 rounded-[2.5rem] border shadow-sm transition-all active:scale-[0.98] ${item.isConflicted ? 'bg-red-50 border-red-200 animate-border-red' : isHoli ? 'bg-red-50 border-red-100' : isSpec ? 'bg-amber-50 border-amber-100' : 'bg-white border-slate-50'}`}>
+                                                    <div className={`flex flex-col justify-center border-r pr-6 min-w-[95px] ${item.isConflicted ? 'border-red-200' : isHoli ? 'border-red-200/50' : isSpec ? 'border-amber-200/50' : 'border-slate-100/50'}`}>
+                                                        <span className={`text-[11px] font-black tracking-tighter italic ${item.isConflicted || isHoli ? 'text-red-600' : isSpec ? 'text-amber-700' : 'text-slate-800'}`}>
+                                                            {isHoli ? "00:00" : String(item.t || "").split('~')[0]}
+                                                        </span>
+                                                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{isHoli ? 'OFF' : 'Start'}</span>
                                                     </div>
-                                                    <p className={`text-xs font-medium truncate ${item.s ? 'text-red-400' : 'text-slate-400'}`}>{String(item.t || "")}</p>
+                                                    <div className="pl-6 flex-1 flex flex-col justify-center overflow-hidden">
+                                                        <div className="flex items-center gap-1.5 mb-1">
+                                                            {item.isConflicted && <Icon name="alert-triangle" className="text-red-500 w-4 h-4" />}
+                                                            {isHoli ? <Icon name="gift" className="text-red-500 w-4 h-4" /> : isSpec && !item.isConflicted && <span className="px-1.5 py-0.5 rounded-md bg-amber-500 text-white text-[8px] font-black uppercase tracking-tighter">{item.type}</span>}
+                                                            <h4 className={`text-lg font-black leading-tight truncate ${item.isConflicted || isHoli ? 'text-red-800' : isSpec ? 'text-amber-900' : 'text-slate-800'}`}>{String(item.n || "")}</h4>
+                                                        </div>
+                                                        <p className={`text-xs font-medium truncate ${item.isConflicted || isHoli ? 'text-red-400' : isSpec ? 'text-amber-600' : 'text-slate-400'}`}>
+                                                            {isHoli ? "전체 휴무" : formatToAmPm(String(item.t || "").split('~')[0]) + " ~ " + formatToAmPm(String(item.t || "").split('~')[1])}
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
-                                ) : <div className="py-24 text-center text-slate-300 font-bold">
-                                    <Icon name="calendar-off" className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                                    <p>일정이 없습니다.</p>
-                                </div>
+                                ) : <div className="py-24 text-center text-slate-300 font-bold">등록된 일정이 없습니다.</div>
                             )}
                         </div>
                         <div className="h-12 bg-white" />
                     </div>
-                    
-                    {/* Tailwind Safe List */}
-                    <div className="hidden bg-blue-600 bg-green-700 bg-blue-50 bg-green-50 border-blue-400 border-green-400 text-blue-600 text-green-600"></div>
+                    <div className="hidden bg-blue-600 bg-green-700 bg-blue-50 bg-green-50 border-blue-400 border-green-400 text-blue-600 text-green-600 shadow-blue-100 shadow-green-100"></div>
                 </div>
             );
         };
