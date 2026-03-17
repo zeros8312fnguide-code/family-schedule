@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Family Schedule App v3.2</title>
+    <title>Family Schedule App v3.3</title>
     
     <!-- 모바일 앱 설정 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -44,9 +44,12 @@
         }
         .animate-border-red { animation: pulse-red 2s infinite; border-width: 2px; }
         
-        /* 스와이프 영역 안내를 위한 시각적 힌트 */
         .calendar-container {
-            touch-action: pan-y pinch-zoom; /* 브라우저 기본 수평 스와이프 방지하고 JS로 처리 */
+            touch-action: pan-y pinch-zoom;
+            overflow: hidden; /* 스와이프 시 삐져나오는 컨텐츠 숨김 */
+        }
+        .swipe-content {
+            will-change: transform;
         }
     </style>
 </head>
@@ -113,7 +116,9 @@
             const [pendingConflict, setPendingConflict] = useState(null);
             const [loadError, setLoadError] = useState(null);
             
-            // 스와이프를 위한 터치 시작 위치 상태
+            // [스와이프용 상태 추가]
+            const [swipeOffset, setSwipeOffset] = useState(0);
+            const [isDragging, setIsDragging] = useState(false);
             const touchStartX = useRef(0);
 
             const showMessage = (msg) => { setUiMessage(msg); setTimeout(() => setUiMessage(null), 2000); };
@@ -166,20 +171,31 @@
                 setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1));
             }, [currentDate]);
 
-            // 스와이프 핸들러
+            // [인터랙티브 스와이프 핸들러]
             const onTouchStart = (e) => {
                 touchStartX.current = e.touches[0].clientX;
+                setIsDragging(true);
             };
 
-            const onTouchEnd = (e) => {
-                const touchEndX = e.changedTouches[0].clientX;
-                const diff = touchEndX - touchStartX.current;
+            const onTouchMove = (e) => {
+                if (!isDragging) return;
+                const currentX = e.touches[0].clientX;
+                const diff = currentX - touchStartX.current;
+                // 손가락 움직임에 따라 실시간 오프셋 업데이트
+                setSwipeOffset(diff);
+            };
+
+            const onTouchEnd = () => {
+                setIsDragging(false);
+                const diff = swipeOffset;
                 
-                // 임계값 50px 설정
-                if (Math.abs(diff) > 50) {
-                    if (diff > 0) moveMonth(-1); // 오른쪽 스와이프 -> 이전 달
-                    else moveMonth(1); // 왼쪽 스와이프 -> 다음 달
+                if (Math.abs(diff) > 60) { // 임계값을 60px로 조정
+                    if (diff > 0) moveMonth(-1);
+                    else moveMonth(1);
                 }
+                
+                // 손을 떼면 오프셋 초기화 (CSS 트랜지션에 의해 부드럽게 복귀)
+                setSwipeOffset(0);
             };
 
             useEffect(() => {
@@ -334,9 +350,11 @@
                     </header>
 
                     <main className="flex-1 p-4 max-w-md mx-auto w-full">
+                        {/* 캘린더 그리드 영역: 스와이프 인터랙션 적용 */}
                         <div 
                             className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden mb-6 calendar-container"
                             onTouchStart={onTouchStart}
+                            onTouchMove={onTouchMove}
                             onTouchEnd={onTouchEnd}
                         >
                             <div className="flex items-center justify-between p-6 pb-2">
@@ -346,14 +364,23 @@
                                     <button onClick={() => moveMonth(1)} className="p-2 active:scale-90 transition-transform"><Icon name="chevron-right" className="text-slate-400" /></button>
                                 </div>
                             </div>
+                            
                             <div className="grid grid-cols-7 text-center px-4 pt-4 border-b border-slate-50 pb-2">
                                 {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
                                     <div key={d} className={`text-[10px] font-black ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-400'}`}>{d}</div>
                                 ))}
                             </div>
-                            <div className="grid grid-cols-7 gap-px bg-slate-100/30">
+
+                            {/* 드래그 상태에 따라 실시간 transform 적용 */}
+                            <div 
+                                className="grid grid-cols-7 gap-px bg-slate-100/30 swipe-content"
+                                style={{ 
+                                    transform: `translateX(${swipeOffset}px)`,
+                                    transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)'
+                                }}
+                            >
                                 {calendarDays.map((date, idx) => {
-                                    if (!date) return <div key={`empty-${idx}`} className="bg-white h-20"></div>;
+                                    if (!date) return <div key={`empty-${idx}`} className="bg-white h-16 md:h-20"></div>;
                                     const isSelected = selectedDate.toDateString() === date.toDateString();
                                     const isToday = new Date().toDateString() === date.toDateString();
                                     const holidayName = getHolidayName(date);
@@ -361,7 +388,7 @@
                                     const dayColor = (date.getDay() === 0 || holidayName) ? 'text-red-500' : date.getDay() === 6 ? 'text-blue-500' : 'text-slate-700';
 
                                     return (
-                                        <button key={date.toISOString()} onClick={() => { setSelectedDate(date); setIsSheetOpen(true); }} className="bg-white h-20 flex flex-col items-center justify-start pt-3 relative active:bg-slate-50 transition-colors">
+                                        <button key={date.toISOString()} onClick={() => { setSelectedDate(date); setIsSheetOpen(true); }} className="bg-white h-16 md:h-20 flex flex-col items-center justify-start pt-3 relative active:bg-slate-50 transition-colors">
                                             {isSelected && <div className={`absolute inset-1.5 rounded-2xl border-2 border-${theme}-400 bg-${theme}-50 opacity-50`}></div>}
                                             <span className={`text-sm font-bold z-10 ${new Date().toDateString() === date.toDateString() ? 'bg-slate-900 text-white w-6 h-6 flex items-center justify-center rounded-full text-[10px]' : dayColor}`}>{date.getDate()}</span>
                                             <div className="flex flex-wrap justify-center gap-0.5 mt-2 px-1 z-10">
@@ -374,9 +401,7 @@
                                 })}
                             </div>
                         </div>
-                        
-                        {/* 스와이프 안내 문구 (모바일 전용) */}
-                        <p className="text-center text-[10px] text-slate-300 font-bold animate-pulse">← 좌우로 스와이프하여 월 이동 →</p>
+                        <p className="text-center text-[10px] text-slate-300 font-bold animate-pulse">← 좌우로 밀어서 이전/다음 달 이동 →</p>
                     </main>
 
                     <div className={`fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity ${isSheetOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => { if (!isEditMode && !isPinInputOpen) setIsSheetOpen(false); }} />
