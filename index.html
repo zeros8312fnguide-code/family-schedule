@@ -10,22 +10,28 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3652/3652191.png">
     
-    <!-- 라이브러리 로드 -->
+    <!-- 라이브러리 로드 (안정적인 버전 고정) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Firebase SDK (Compat 버전) -->
+    <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;900&display=swap');
-        body { font-family: 'Pretendard', sans-serif; -webkit-tap-highlight-color: transparent; user-select: none; }
+        body { 
+            font-family: 'Pretendard', sans-serif; 
+            -webkit-tap-highlight-color: transparent; 
+            user-select: none; 
+            background-color: #f8fafc;
+            overscroll-behavior-y: contain; /* 당겨서 새로고침 방지 */
+        }
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .sheet-transition { transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1); }
+        .sheet-transition { transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
         input, textarea { user-select: text !important; }
     </style>
 </head>
@@ -33,9 +39,9 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useCallback } = React;
 
-        // 아이콘 컴포넌트 (React.Fragment를 사용하여 SyntaxError 해결)
+        // 아이콘 컴포넌트 (방어적 렌더링 추가)
         const Icon = ({ name, className = "w-4 h-4" }) => {
             const icons = {
                 'chevron-left': <path d="m15 18-6-6 6-6"/>,
@@ -107,6 +113,7 @@
             const [masterData, setMasterData] = useState(null);
             const [editingItems, setEditingItems] = useState([]);
 
+            // 1. 인증 처리
             useEffect(() => {
                 const unsubscribe = auth.onAuthStateChanged((u) => {
                     if (u) setUser(u);
@@ -115,6 +122,7 @@
                 return () => unsubscribe();
             }, []);
 
+            // 2. 실시간 데이터 동기화
             useEffect(() => {
                 if (!user) return;
                 const docRef = db.doc(`artifacts/${appId}/public/data/schedules/master`);
@@ -141,63 +149,108 @@
                         docRef.set(initialData);
                         setMasterData(initialData);
                     }
+                }, (error) => {
+                    console.error("Firestore Error:", error);
                 });
                 return () => unsubscribe();
             }, [user]);
 
+            // 캘린더 날짜 계산 (메모이제이션 강화)
             const calendarDays = useMemo(() => {
-                const y = currentDate.getFullYear(), m = currentDate.getMonth();
-                const first = new Date(y, m, 1).getDay();
-                const last = new Date(y, m + 1, 0).getDate();
-                const d = [];
-                for (let i = 0; i < first; i++) d.push(null);
-                for (let i = 1; i <= last; i++) d.push(new Date(y, m, i));
-                return d;
+                try {
+                    const y = currentDate.getFullYear(), m = currentDate.getMonth();
+                    const first = new Date(y, m, 1).getDay();
+                    const last = new Date(y, m + 1, 0).getDate();
+                    const d = [];
+                    for (let i = 0; i < first; i++) d.push(null);
+                    for (let i = 1; i <= last; i++) d.push(new Date(y, m, i));
+                    return d;
+                } catch (e) {
+                    return [];
+                }
             }, [currentDate]);
 
-            const getSpecialEvents = (date, childId) => {
+            // 특수 일정 로직 (방어적 코딩)
+            const getSpecialEvents = useCallback((date, childId) => {
                 if (!date || childId !== 'SeoYoon') return [];
-                const day = date.getDay();
-                const weekNum = Math.ceil(date.getDate() / 7);
-                const extras = [];
-                if (day === 2 && weekNum === 3) extras.push({ n: "🔭 천문대 수업", t: "18:20~21:30", s: true });
-                if (day === 3 && (weekNum === 2 || weekNum === 4)) extras.push({ n: "🎨 미술학원 특강", t: "17:00~19:00", s: true });
-                return extras;
-            };
+                try {
+                    const day = date.getDay();
+                    const weekNum = Math.ceil(date.getDate() / 7);
+                    const extras = [];
+                    if (day === 2 && weekNum === 3) extras.push({ n: "🔭 천문대 수업", t: "18:20~21:30", s: true });
+                    if (day === 3 && (weekNum === 2 || weekNum === 4)) extras.push({ n: "🎨 미술학원 특강", t: "17:00~19:00", s: true });
+                    return extras;
+                } catch (e) {
+                    return [];
+                }
+            }, []);
 
-            const getCombinedSchedule = (date, childId) => {
+            // 통합 일정 계산
+            const getCombinedSchedule = useCallback((date, childId) => {
                 if (!masterData || !date) return [];
-                const dayKey = String(date.getDay());
-                const regular = masterData[childId]?.[dayKey] || [];
-                const special = getSpecialEvents(date, childId);
-                return [...regular, ...special].sort((a, b) => String(a.t).localeCompare(String(b.t)));
-            };
+                try {
+                    const dayKey = String(date.getDay());
+                    const regular = masterData?.[childId]?.[dayKey] || [];
+                    const special = getSpecialEvents(date, childId);
+                    return [...regular, ...special].sort((a, b) => String(a.t || "").localeCompare(String(b.t || "")));
+                } catch (e) {
+                    return [];
+                }
+            }, [masterData, getSpecialEvents]);
 
             const startEditAttempt = () => {
-                if (isEditMode) setIsEditMode(false);
-                else { setPinBuffer(""); setIsPinInputOpen(true); }
+                if (isEditMode) {
+                    setIsEditMode(false);
+                } else {
+                    setPinBuffer("");
+                    setIsPinInputOpen(true);
+                }
             };
 
             const verifyPin = () => {
                 if (pinBuffer === EDIT_PIN) {
                     setIsPinInputOpen(false);
-                    setEditingItems(JSON.parse(JSON.stringify(masterData[activeChild]?.[String(selectedDate.getDay())] || [])));
+                    const dayKey = String(selectedDate.getDay());
+                    setEditingItems(JSON.parse(JSON.stringify(masterData?.[activeChild]?.[dayKey] || [])));
                     setIsEditMode(true);
                 } else {
-                    alert("PIN 오류");
+                    alert("PIN 번호가 일치하지 않습니다.");
                     setPinBuffer("");
                 }
             };
 
             const saveToCloud = async () => {
-                const docRef = db.doc(`artifacts/${appId}/public/data/schedules/master`);
-                const updated = { ...masterData, [activeChild]: { ...masterData[activeChild], [String(selectedDate.getDay())]: editingItems } };
-                await docRef.set(updated);
-                setIsEditMode(false);
-                alert("저장 완료");
+                try {
+                    const docRef = db.doc(`artifacts/${appId}/public/data/schedules/master`);
+                    const dayKey = String(selectedDate.getDay());
+                    const updated = { 
+                        ...masterData, 
+                        [activeChild]: { 
+                            ...(masterData?.[activeChild] || {}), 
+                            [dayKey]: editingItems 
+                        } 
+                    };
+                    await docRef.set(updated);
+                    setIsEditMode(false);
+                    alert("성공적으로 저장되었습니다.");
+                } catch (e) {
+                    alert("저장에 실패했습니다. 권한을 확인하세요.");
+                }
             };
 
-            if (!masterData) return <div className="h-screen flex items-center justify-center text-slate-400 font-bold uppercase text-xs tracking-widest">Syncing...</div>;
+            const handleDateSelection = (date) => {
+                if (!date) return;
+                setSelectedDate(date);
+                setIsSheetOpen(true);
+            };
+
+            // 데이터 로딩 중 화면
+            if (!masterData) return (
+                <div className="h-screen flex flex-col items-center justify-center bg-white space-y-4">
+                    <div className="w-10 h-10 border-4 border-slate-100 border-t-blue-500 rounded-full animate-spin"></div>
+                    <p className="text-slate-400 font-bold text-xs tracking-widest uppercase">Initializing</p>
+                </div>
+            );
 
             const theme = activeChild === 'SeoYoon' ? 'blue' : 'green';
             const selectedSchedule = getCombinedSchedule(selectedDate, activeChild);
@@ -209,8 +262,11 @@
                             <h1 className="text-xl font-black text-slate-800 tracking-tighter">Family App</h1>
                             <div className="flex p-1 bg-slate-100 rounded-full">
                                 {['SeoYoon', 'YoonSung'].map(id => (
-                                    <button key={id} onClick={() => { setActiveChild(id); setIsEditMode(false); setIsPinInputOpen(false); }} 
-                                        className={`px-5 py-1.5 rounded-full text-xs font-bold transition-all ${activeChild === id ? (id === 'SeoYoon' ? 'bg-blue-600' : 'bg-green-700') + ' text-white shadow-md' : 'text-slate-500'}`}>
+                                    <button 
+                                        key={id} 
+                                        onClick={() => { setActiveChild(id); setIsEditMode(false); setIsPinInputOpen(false); }} 
+                                        className={`px-5 py-1.5 rounded-full text-xs font-bold transition-all ${activeChild === id ? (id === 'SeoYoon' ? 'bg-blue-600' : 'bg-green-700') + ' text-white shadow-md' : 'text-slate-500'}`}
+                                    >
                                         {id === 'SeoYoon' ? '서윤' : '윤성'}
                                     </button>
                                 ))}
@@ -223,8 +279,8 @@
                             <div className="flex items-center justify-between p-6 pb-2">
                                 <h2 className="text-lg font-extrabold">{currentDate.getFullYear()}년 {currentDate.getMonth() + 1}월</h2>
                                 <div className="flex space-x-1">
-                                    <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="p-2 bg-slate-50 rounded-full"><Icon name="chevron-left" className="w-5 h-5 text-slate-400" /></button>
-                                    <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))} className="p-2 bg-slate-50 rounded-full"><Icon name="chevron-right" className="w-5 h-5 text-slate-400" /></button>
+                                    <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="p-2 bg-slate-50 rounded-full active:scale-90 transition-transform"><Icon name="chevron-left" className="w-5 h-5 text-slate-400" /></button>
+                                    <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))} className="p-2 bg-slate-50 rounded-full active:scale-90 transition-transform"><Icon name="chevron-right" className="w-5 h-5 text-slate-400" /></button>
                                 </div>
                             </div>
                             <div className="grid grid-cols-7 text-center px-4 pt-4 border-b border-slate-50 pb-2">
@@ -234,16 +290,21 @@
                             </div>
                             <div className="grid grid-cols-7 gap-px bg-slate-100/30">
                                 {calendarDays.map((date, idx) => {
-                                    if (!date) return <div key={idx} className="bg-white h-20"></div>;
-                                    const isSelected = selectedDate.toDateString() === date.toDateString();
+                                    if (!date) return <div key={`empty-${idx}`} className="bg-white h-20"></div>;
+                                    const dateStr = date.toDateString();
+                                    const isSelected = selectedDate.toDateString() === dateStr;
                                     const items = getCombinedSchedule(date, activeChild);
-                                    const isToday = new Date().toDateString() === date.toDateString();
+                                    const isToday = new Date().toDateString() === dateStr;
                                     return (
-                                        <button key={idx} onClick={() => { setSelectedDate(date); setIsSheetOpen(true); }} className="bg-white h-20 flex flex-col items-center justify-start pt-3 relative active:bg-slate-50 transition-colors">
+                                        <button 
+                                            key={date.toISOString()} 
+                                            onClick={() => handleDateSelection(date)} 
+                                            className="bg-white h-20 flex flex-col items-center justify-start pt-3 relative active:bg-slate-50 transition-colors"
+                                        >
                                             {isSelected && <div className={`absolute inset-1.5 rounded-2xl border-2 border-${theme}-400 bg-${theme}-50 opacity-50`}></div>}
                                             <span className={`text-sm font-bold z-10 ${isToday ? 'bg-slate-900 text-white w-6 h-6 flex items-center justify-center rounded-full text-[10px]' : date.getDay() === 0 ? 'text-red-500' : date.getDay() === 6 ? 'text-blue-500' : 'text-slate-700'}`}>{date.getDate()}</span>
                                             <div className="flex flex-wrap justify-center gap-0.5 mt-2 px-1 z-10">
-                                                {items.map((item, i) => <div key={i} className={`w-1 h-1 rounded-full ${item.s ? 'bg-red-500' : `bg-${theme}-500`}`}></div>)}
+                                                {items.map((item, i) => <div key={`${dateStr}-${i}`} className={`w-1 h-1 rounded-full ${item.s ? 'bg-red-500' : `bg-${theme}-500`}`}></div>)}
                                             </div>
                                         </button>
                                     );
@@ -252,33 +313,41 @@
                         </div>
                     </main>
 
-                    <div className={`fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity ${isSheetOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => { if (!isEditMode && !isPinInputOpen) setIsSheetOpen(false); }} />
+                    {/* Sheet Overlay */}
+                    <div 
+                        className={`fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${isSheetOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} 
+                        onClick={() => { if (!isEditMode && !isPinInputOpen) setIsSheetOpen(false); }} 
+                    />
+
+                    {/* Bottom Sheet */}
                     <div className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[2.5rem] shadow-2xl sheet-transition transform ${isSheetOpen ? 'translate-y-0' : 'translate-y-full'}`}>
                         <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mt-4 mb-2" />
+                        
                         <div className="px-8 py-6 flex items-center justify-between border-b border-slate-50">
-                            <div>
-                                <p className={`text-[10px] font-black uppercase tracking-widest mb-1 text-${theme}-600`}>Daily Schedule</p>
-                                <h3 className="text-2xl font-black">{selectedDate.getDate()}일 ({['일','월','화','수','목','금','토'][selectedDate.getDay()]})</h3>
+                            <div className="flex-1 pr-4 overflow-hidden">
+                                <p className={`text-[10px] font-black uppercase tracking-widest mb-1 truncate text-${theme}-600`}>Daily Schedule</p>
+                                <h3 className="text-xl font-black truncate">{selectedDate.getDate()}일 ({['일','월','화','수','목','금','토'][selectedDate.getDay()]})</h3>
                             </div>
-                            <button onClick={startEditAttempt} className={`flex items-center space-x-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all active:scale-95 ${isEditMode ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600 shadow-sm'}`}>
+                            <button 
+                                onClick={startEditAttempt} 
+                                className={`flex-shrink-0 flex items-center space-x-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all active:scale-95 ${isEditMode ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600 shadow-sm'}`}
+                            >
                                 {isEditMode ? <><Icon name="x" className="w-4 h-4" /> 취소</> : <><Icon name="unlock" className="w-3.5 h-3.5" /> 편집</>}
                             </button>
                         </div>
 
-                        <div className="p-8 space-y-4 max-h-[65vh] overflow-y-auto no-scrollbar">
+                        <div className="p-8 space-y-4 max-h-[60vh] overflow-y-auto no-scrollbar">
                             {isPinInputOpen && (
-                                <div className="py-6 flex flex-col items-center">
-                                    <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 w-full max-w-[280px] text-center">
-                                        <Icon name="lock" className="w-8 h-8 mx-auto text-slate-300 mb-4" />
-                                        <h4 className="font-extrabold text-slate-800 mb-6">PIN 번호 입력</h4>
-                                        <div className="flex justify-center gap-3 mb-8">
+                                <div className="py-4 flex flex-col items-center animate-in fade-in zoom-in duration-300">
+                                    <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 w-full max-w-[280px] text-center shadow-inner">
+                                        <div className="flex justify-center gap-3 mb-8 mt-4">
                                             {[...Array(4)].map((_, i) => (
-                                                <div key={i} className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${pinBuffer.length > i ? 'bg-blue-500 border-blue-500 scale-110' : 'border-slate-300'}`}></div>
+                                                <div key={`pin-${i}`} className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${pinBuffer.length > i ? 'bg-blue-500 border-blue-500 scale-110' : 'border-slate-300'}`}></div>
                                             ))}
                                         </div>
                                         <div className="grid grid-cols-3 gap-2">
                                             {[1,2,3,4,5,6,7,8,9, 'C', 0, 'OK'].map((num) => (
-                                                <button key={num} onClick={() => {
+                                                <button key={`num-${num}`} onClick={() => {
                                                     if (num === 'C') setPinBuffer("");
                                                     else if (num === 'OK') verifyPin();
                                                     else if (pinBuffer.length < 4) setPinBuffer(pinBuffer + num);
@@ -294,16 +363,22 @@
                             {!isPinInputOpen && isEditMode && (
                                 <div className="space-y-4 pb-10">
                                     {editingItems.map((item, i) => (
-                                        <div key={i} className="flex flex-col p-5 bg-slate-50 rounded-[2rem] border border-slate-200 relative">
-                                            <button onClick={() => setEditingItems(editingItems.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 p-2 bg-red-500 text-white rounded-full shadow-lg"><Icon name="trash-2" className="w-4 h-4" /></button>
+                                        <div key={`edit-${i}`} className="flex flex-col p-5 bg-slate-50 rounded-[2rem] border border-slate-200 relative">
+                                            <button onClick={() => setEditingItems(editingItems.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 p-2 bg-red-500 text-white rounded-full shadow-lg active:scale-90"><Icon name="trash-2" className="w-4 h-4" /></button>
                                             <div className="space-y-3">
-                                                <div className="flex items-center bg-white px-4 py-2 rounded-xl border border-slate-100"><Icon name="edit-3" className="w-3.5 h-3.5 text-slate-300 mr-2" /><input className="flex-1 bg-transparent font-bold outline-none text-sm" value={item.n} onChange={(e) => { const n = [...editingItems]; n[i].n = e.target.value; setEditingItems(n); }} placeholder="수업명" /></div>
-                                                <div className="flex items-center bg-white px-4 py-2 rounded-xl border border-slate-100"><Icon name="clock" className="w-3.5 h-3.5 text-slate-300 mr-2" /><input className="flex-1 bg-transparent text-xs text-slate-500 outline-none" value={item.t} onChange={(e) => { const n = [...editingItems]; n[i].t = e.target.value; setEditingItems(n); }} placeholder="12:00~13:00" /></div>
+                                                <div className="flex items-center bg-white px-4 py-2 rounded-xl border border-slate-100 shadow-sm">
+                                                    <Icon name="edit-3" className="w-3.5 h-3.5 text-slate-300 mr-2" />
+                                                    <input className="flex-1 bg-transparent font-bold outline-none text-sm" value={String(item.n || "")} onChange={(e) => { const n = [...editingItems]; n[i].n = e.target.value; setEditingItems(n); }} placeholder="수업명" />
+                                                </div>
+                                                <div className="flex items-center bg-white px-4 py-2 rounded-xl border border-slate-100 shadow-sm">
+                                                    <Icon name="clock" className="w-3.5 h-3.5 text-slate-300 mr-2" />
+                                                    <input className="flex-1 bg-transparent text-xs text-slate-500 outline-none" value={String(item.t || "")} onChange={(e) => { const n = [...editingItems]; n[i].t = e.target.value; setEditingItems(n); }} placeholder="12:00~13:00" />
+                                                </div>
                                             </div>
                                         </div>
                                     ))}
-                                    <button onClick={() => setEditingItems([...editingItems, { n: "", t: "" }])} className="w-full py-5 border-2 border-dashed border-slate-200 rounded-[2rem] text-slate-400 font-bold active:bg-slate-50">+ 일정 추가</button>
-                                    <button onClick={saveToCloud} className={`w-full py-5 bg-${theme}-600 text-white rounded-[2rem] font-black shadow-xl mt-6`}>클라우드 저장</button>
+                                    <button onClick={() => setEditingItems([...editingItems, { n: "", t: "" }])} className="w-full py-5 border-2 border-dashed border-slate-200 rounded-[2rem] text-slate-400 font-bold active:bg-slate-50 transition-colors">+ 일정 추가</button>
+                                    <button onClick={saveToCloud} className={`w-full py-5 bg-${theme}-600 text-white rounded-[2rem] font-black shadow-xl mt-6 active:scale-95 transition-transform`}>클라우드 저장</button>
                                 </div>
                             )}
 
@@ -311,17 +386,17 @@
                                 selectedSchedule.length > 0 ? (
                                     <div className="space-y-4 pb-10">
                                         {selectedSchedule.map((item, i) => (
-                                            <div key={i} className={`flex items-stretch p-6 rounded-[2.5rem] border shadow-sm ${item.s ? 'bg-red-50 border-red-100' : 'bg-white border-slate-50'}`}>
+                                            <div key={`view-${selectedDate.toDateString()}-${i}`} className={`flex items-stretch p-6 rounded-[2.5rem] border shadow-sm transition-all active:scale-[0.98] ${item.s ? 'bg-red-50 border-red-100' : 'bg-white border-slate-50'}`}>
                                                 <div className="flex flex-col justify-center border-r border-slate-100/50 pr-6 min-w-[90px]">
                                                     <span className={`text-xs font-black tracking-tighter italic ${item.s ? 'text-red-600' : 'text-slate-800'}`}>{String(item.t || "").split('~')[0]}</span>
                                                     <span className="text-[10px] text-slate-400 font-medium">START</span>
                                                 </div>
-                                                <div className="pl-6 flex-1 flex flex-col justify-center">
+                                                <div className="pl-6 flex-1 flex flex-col justify-center overflow-hidden">
                                                     <div className="flex items-center gap-2 mb-1">
                                                         {item.s && <Icon name="star" className="w-3.5 h-3.5 text-red-500 fill-red-500" />}
-                                                        <h4 className={`text-lg font-black leading-tight ${item.s ? 'text-red-800' : 'text-slate-800'}`}>{String(item.n || "")}</h4>
+                                                        <h4 className={`text-lg font-black leading-tight truncate ${item.s ? 'text-red-800' : 'text-slate-800'}`}>{String(item.n || "")}</h4>
                                                     </div>
-                                                    <p className={`text-xs font-medium ${item.s ? 'text-red-400' : 'text-slate-400'}`}>{String(item.t || "")}</p>
+                                                    <p className={`text-xs font-medium truncate ${item.s ? 'text-red-400' : 'text-slate-400'}`}>{String(item.t || "")}</p>
                                                 </div>
                                             </div>
                                         ))}
@@ -334,6 +409,8 @@
                         </div>
                         <div className="h-12 bg-white" />
                     </div>
+                    
+                    {/* Tailwind Safe List */}
                     <div className="hidden bg-blue-600 bg-green-700 bg-blue-50 bg-green-50 border-blue-400 border-green-400 text-blue-600 text-green-600"></div>
                 </div>
             );
