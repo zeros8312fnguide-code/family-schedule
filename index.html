@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Family Schedule App v3.5 (Zero-Bounce Gesture)</title>
+    <title>Family Schedule App v3.6 (Fixed Swipe)</title>
     
     <!-- 모바일 앱 설정 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,24 +23,40 @@
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;900&display=swap');
+        
+        :root {
+            --sat: env(safe-area-inset-top);
+            --sab: env(safe-area-inset-bottom);
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden; /* 전체 화면 스크롤 원천 차단 */
+            overscroll-behavior: none;
+            background-color: #f8fafc;
+        }
+
         body { 
             font-family: 'Pretendard', sans-serif; 
             -webkit-tap-highlight-color: transparent; 
             user-select: none; 
-            background-color: #f8fafc;
-            /* 전역 바운스 방지 */
-            overscroll-behavior-y: none; 
-            overflow-x: hidden;
         }
+
+        #root {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .sheet-transition { transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
         
-        /* 캘린더 컨테이너: 모든 방향의 브라우저 기본 제스처 차단 (JS로 제어) */
+        /* 캘린더 컨테이너: 브라우저 기본 제스처 완전 차단 */
         .calendar-gesture-area {
-            touch-action: none; /* 브라우저의 팬/줌 기능을 끄고 순수 JS 제어 */
-            overscroll-behavior: none;
-            overflow: hidden;
+            touch-action: none; 
             position: relative;
+            overflow: hidden;
         }
 
         input, textarea { user-select: text !important; }
@@ -57,7 +73,6 @@
         
         .swipe-content {
             will-change: transform;
-            user-select: none;
         }
     </style>
 </head>
@@ -83,6 +98,7 @@
                 'cycle': <React.Fragment><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></React.Fragment>,
                 'gift': <React.Fragment><polyline points="20 12 20 22 4 22 4 12"/><rect width="20" height="5" x="2" y="7" rx="2"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></React.Fragment>,
                 'alert-triangle': <React.Fragment><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></React.Fragment>,
+                'refresh': <path d="M21 12a9 9 1 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>,
                 'database': <React.Fragment><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></React.Fragment>
             };
             return (
@@ -121,14 +137,13 @@
             const [uiMessage, setUiMessage] = useState(null);
             const [holidays, setHolidays] = useState({});
             const [pendingConflict, setPendingConflict] = useState(null);
-            const [loadError, setLoadError] = useState(null);
             
-            // [스와이프 안정화 상태]
             const [swipeOffset, setSwipeOffset] = useState(0);
             const [isDragging, setIsDragging] = useState(false);
-            const touchStartX = useRef(0);
-            const touchStartY = useRef(0);
+            
             const gestureAreaRef = useRef(null);
+            const touchStartPos = useRef({ x: 0, y: 0 });
+            const swipeDirection = useRef(null); // 'h' (horizontal) or 'v' (vertical)
 
             const showMessage = (msg) => { setUiMessage(msg); setTimeout(() => setUiMessage(null), 2000); };
 
@@ -179,43 +194,56 @@
                 setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
             }, []);
 
-            // [핵심: 수직 들썩임 방지를 위한 수동 이벤트 리스너]
+            // [개선된 스와이프 로직]
             useEffect(() => {
                 const el = gestureAreaRef.current;
                 if (!el) return;
 
                 const handleStart = (e) => {
-                    touchStartX.current = e.touches[0].clientX;
-                    touchStartY.current = e.touches[0].clientY;
+                    touchStartPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
                     setIsDragging(true);
+                    swipeDirection.current = null;
                 };
 
                 const handleMove = (e) => {
-                    if (!touchStartX.current) return;
+                    if (!isDragging) return;
                     
                     const currentX = e.touches[0].clientX;
                     const currentY = e.touches[0].clientY;
-                    const diffX = currentX - touchStartX.current;
-                    const diffY = currentY - touchStartY.current;
+                    const diffX = currentX - touchStartPos.current.x;
+                    const diffY = currentY - touchStartPos.current.y;
 
-                    // 수평 이동의 절대값이 더 크면 브라우저 스크롤(수직)을 완전히 막음
-                    if (Math.abs(diffX) > Math.abs(diffY)) {
-                        if (e.cancelable) e.preventDefault(); // 수직 들썩임 원천 차단
+                    // 방향 판별 (처음 움직였을 때 한 번만 수행)
+                    if (!swipeDirection.current) {
+                        if (Math.abs(diffX) > Math.abs(diffY)) {
+                            swipeDirection.current = 'h';
+                        } else if (Math.abs(diffY) > 10) {
+                            swipeDirection.current = 'v';
+                        }
+                    }
+
+                    // 수평 스와이프인 경우 브라우저 기본 동작 차단 및 오프셋 적용
+                    if (swipeDirection.current === 'h') {
+                        if (e.cancelable) e.preventDefault(); 
                         setSwipeOffset(diffX);
                     }
                 };
 
                 const handleEnd = () => {
-                    setIsDragging(false);
-                    // 오프셋이 일정 값 이상일 때만 페이지 전환
-                    if (Math.abs(swipeOffset) > 70) {
-                        moveMonth(swipeOffset > 0 ? -1 : 1);
+                    if (!isDragging) return;
+                    
+                    const finalX = touchStartPos.current.x + swipeOffset;
+                    const diff = finalX - touchStartPos.current.x;
+
+                    if (swipeDirection.current === 'h' && Math.abs(diff) > 70) {
+                        moveMonth(diff > 0 ? -1 : 1);
                     }
+
+                    setIsDragging(false);
                     setSwipeOffset(0);
-                    touchStartX.current = 0;
+                    swipeDirection.current = null;
                 };
 
-                // { passive: false } 를 위해 addEventListener 사용
                 el.addEventListener('touchstart', handleStart, { passive: true });
                 el.addEventListener('touchmove', handleMove, { passive: false });
                 el.addEventListener('touchend', handleEnd, { passive: true });
@@ -225,8 +253,9 @@
                     el.removeEventListener('touchmove', handleMove);
                     el.removeEventListener('touchend', handleEnd);
                 };
-            }, [moveMonth, swipeOffset]);
+            }, [isDragging, moveMonth, swipeOffset]);
 
+            // 공휴일 API 데이터
             useEffect(() => {
                 const fetchHolidays = async () => {
                     try {
@@ -244,30 +273,31 @@
                 fetchHolidays();
             }, []);
 
+            // Firebase 인증
             useEffect(() => {
                 const initAuth = async () => {
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await auth.signInWithCustomToken(__initial_auth_token);
                         else await auth.signInAnonymously();
-                    } catch (err) { await auth.signInAnonymously().catch(() => setLoadError("Auth Error")); }
+                    } catch (err) { await auth.signInAnonymously().catch(console.error); }
                 };
                 initAuth();
                 const unsubscribe = auth.onAuthStateChanged((u) => { if (u) setUser(u); });
                 return () => unsubscribe();
             }, []);
 
+            // 데이터 동기화
             useEffect(() => {
                 if (!user) return;
                 const docRef = db.doc(`artifacts/${appId}/public/data/schedules/v2_1_master`);
                 const unsubscribe = docRef.onSnapshot((docSnap) => {
                     if (docSnap.exists) {
                         setMasterData(docSnap.data());
-                        setLoadError(null);
                     } else {
                         const data = getInitialData();
-                        docRef.set(data).then(() => setMasterData(data)).catch(() => setLoadError("Retry Required"));
+                        docRef.set(data).then(() => setMasterData(data)).catch(console.error);
                     }
-                }, () => setLoadError("DB Connection Lost"));
+                }, () => showMessage("연결 상태 확인 필요"));
                 return () => unsubscribe();
             }, [user, getInitialData]);
 
@@ -298,12 +328,8 @@
             if (!masterData) return (
                 <div className="h-screen flex flex-col items-center justify-center bg-white p-10 text-center">
                     <div className="w-12 h-12 border-4 border-slate-100 border-t-blue-500 rounded-full animate-spin mb-6"></div>
-                    <h3 className="text-lg font-black text-slate-800 mb-2">데이터 동기화 중</h3>
-                    <div className="space-y-3 w-full max-w-[240px]">
-                        <button onClick={() => setMasterData(getInitialData())} className="w-full py-4 bg-slate-900 text-white rounded-2xl text-xs font-black shadow-xl flex items-center justify-center gap-2">
-                            <Icon name="database" className="w-3 h-3" /> 임시 데이터로 시작
-                        </button>
-                    </div>
+                    <h3 className="text-lg font-black text-slate-800 mb-2">데이터 로드 중</h3>
+                    <button onClick={() => setMasterData(getInitialData())} className="mt-4 px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black">오프라인 모드 시작</button>
                 </div>
             );
 
@@ -338,26 +364,26 @@
             };
 
             return (
-                <div className="flex flex-col min-h-screen bg-slate-50 text-slate-900 pb-20 overflow-x-hidden">
+                <div className="flex flex-col h-full bg-slate-50 text-slate-900">
                     {uiMessage && <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-slate-800 text-white px-6 py-3 rounded-full text-xs font-bold shadow-2xl animate-in fade-in slide-in-from-top-4">{uiMessage}</div>}
 
                     {pendingConflict && (
                         <div className="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-6">
                             <div className="bg-white rounded-[2.5rem] w-full max-w-sm p-8 shadow-2xl animate-in zoom-in">
                                 <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6"><Icon name="alert-triangle" className="w-8 h-8" /></div>
-                                <h4 className="text-xl font-black text-slate-800 text-center mb-2">시간 중복 감지</h4>
-                                <p className="text-slate-500 text-center text-sm leading-relaxed mb-8">일정 시간이 겹칩니다. 계속 등록하시겠습니까?</p>
+                                <h4 className="text-xl font-black text-center mb-2">시간 중복 감지</h4>
+                                <p className="text-slate-500 text-center text-sm mb-8">시간이 겹칩니다. 계속 진행하시겠습니까?</p>
                                 <div className="flex gap-3">
-                                    <button onClick={() => setPendingConflict(null)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold">취소</button>
-                                    <button onClick={finalSaveToCloud} className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-bold">계속 등록</button>
+                                    <button onClick={() => setPendingConflict(null)} className="flex-1 py-4 bg-slate-100 rounded-2xl font-bold">취소</button>
+                                    <button onClick={finalSaveToCloud} className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-bold">계속</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-4 pt-12 md:pt-4 text-center">
+                    <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-4 pt-12 text-center">
                         <div className="flex items-center justify-between max-w-md mx-auto w-full">
-                            <h1 className="text-xl font-black text-slate-800 tracking-tighter">Family App</h1>
+                            <h1 className="text-xl font-black tracking-tighter">Family App</h1>
                             <div className="flex p-1 bg-slate-100 rounded-full border border-slate-200">
                                 {['SeoYoon', 'YoonSung'].map(id => (
                                     <button key={id} onClick={() => { setActiveChild(id); setIsEditMode(false); setIsPinInputOpen(false); }} 
@@ -369,22 +395,20 @@
                         </div>
                     </header>
 
-                    <main className="flex-1 p-4 max-w-md mx-auto w-full">
+                    <main className="flex-1 p-4 max-w-md mx-auto w-full overflow-hidden">
                         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden mb-6 calendar-gesture-area" ref={gestureAreaRef}>
                             <div className="flex items-center justify-between p-6 pb-2">
-                                <h2 className="text-lg font-extrabold text-slate-800">{currentDate.getFullYear()}년 {currentDate.getMonth() + 1}월</h2>
+                                <h2 className="text-lg font-extrabold">{currentDate.getFullYear()}년 {currentDate.getMonth() + 1}월</h2>
                                 <div className="flex space-x-1">
                                     <button onClick={() => moveMonth(-1)} className="p-2 active:scale-90"><Icon name="chevron-left" className="text-slate-400" /></button>
                                     <button onClick={() => moveMonth(1)} className="p-2 active:scale-90"><Icon name="chevron-right" className="text-slate-400" /></button>
                                 </div>
                             </div>
-                            
                             <div className="grid grid-cols-7 text-center px-4 pt-4 border-b border-slate-50 pb-2">
                                 {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
                                     <div key={d} className={`text-[10px] font-black ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-400'}`}>{d}</div>
                                 ))}
                             </div>
-
                             <div 
                                 className="grid grid-cols-7 gap-px bg-slate-100/30 swipe-content"
                                 style={{ 
@@ -403,7 +427,7 @@
                                     return (
                                         <button key={date.toISOString()} onClick={() => { setSelectedDate(date); setIsSheetOpen(true); }} className="bg-white h-16 md:h-20 flex flex-col items-center justify-start pt-3 relative active:bg-slate-50 transition-colors">
                                             {isSelected && <div className={`absolute inset-1.5 rounded-2xl border-2 border-${theme}-400 bg-${theme}-50 opacity-50`}></div>}
-                                            <span className={`text-sm font-bold z-10 ${isToday ? 'bg-slate-900 text-white w-6 h-6 flex items-center justify-center rounded-full text-[10px]' : dayColor}`}>{date.getDate()}</span>
+                                            <span className={`text-sm font-bold z-10 ${new Date().toDateString() === date.toDateString() ? 'bg-slate-900 text-white w-6 h-6 flex items-center justify-center rounded-full text-[10px]' : dayColor}`}>{date.getDate()}</span>
                                             <div className="flex flex-wrap justify-center gap-0.5 mt-2 px-1 z-10">
                                                 {items.map((item, i) => (
                                                     <div key={i} className={`w-1 h-1 rounded-full ${item.isConflicted ? 'bg-red-500 scale-125' : item.type === 'holiday' ? 'bg-red-300' : (item.type === 'monthly' || item.type === 'once') ? 'bg-amber-500' : `bg-${theme}-500`}`}></div>
@@ -414,15 +438,17 @@
                                 })}
                             </div>
                         </div>
+                        <p className="text-center text-[10px] text-slate-300 font-bold animate-pulse">← 좌우로 밀어서 월 이동 →</p>
                     </main>
 
+                    {/* Bottom Sheet Backdrop */}
                     <div className={`fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity ${isSheetOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => { if (!isEditMode && !isPinInputOpen) setIsSheetOpen(false); }} />
-                    <div className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[2.5rem] shadow-2xl sheet-transition transform ${isSheetOpen ? 'translate-y-0' : 'translate-y-full'}`} style={{maxHeight: '92vh'}}>
+                    <div className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[2.5rem] shadow-2xl transition-transform duration-500 ease-out transform ${isSheetOpen ? 'translate-y-0' : 'translate-y-full'}`} style={{maxHeight: '92vh'}}>
                         <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mt-4 mb-2" />
                         <div className="px-8 py-6 flex items-center justify-between border-b border-slate-50">
-                            <div className="flex-1 pr-4 overflow-hidden">
+                            <div className="flex-1 pr-4 overflow-hidden text-slate-800">
                                 <p className={`text-[10px] font-black uppercase tracking-widest mb-1 text-${theme}-600`}>Daily Schedule</p>
-                                <h3 className="text-xl font-black text-slate-800 truncate">{selectedDate.getDate()}일 ({['일','월','화','수','목','금','토'][selectedDate.getDay()]}) {getHolidayName(selectedDate) && <span className="text-red-500 ml-1 text-sm">[{getHolidayName(selectedDate)}]</span>}</h3>
+                                <h3 className="text-xl font-black truncate">{selectedDate.getDate()}일 ({['일','월','화','수','목','금','토'][selectedDate.getDay()]}) {getHolidayName(selectedDate) && <span className="text-red-500 ml-1 text-sm">[{getHolidayName(selectedDate)}]</span>}</h3>
                             </div>
                             <button onClick={() => { if (isEditMode) setIsEditMode(false); else { setPinBuffer(""); setIsPinInputOpen(true); } }} className={`flex items-center space-x-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all active:scale-95 ${isEditMode ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600 shadow-sm'}`}>
                                 {isEditMode ? <><Icon name="x" className="w-4 h-4" /> 취소</> : <><Icon name="unlock" className="w-3.5 h-3.5" /> 편집</>}
@@ -477,7 +503,7 @@
                                 <div className="py-6 flex flex-col items-center">
                                     <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 w-full max-w-[280px] text-center shadow-inner">
                                         <Icon name="lock" className="w-8 h-8 mx-auto text-slate-300 mb-4" />
-                                        <h4 className="font-extrabold text-slate-800 mb-6 text-sm text-center tracking-tighter">Security PIN</h4>
+                                        <h4 className="font-extrabold text-slate-800 mb-6 text-sm text-center">Security PIN</h4>
                                         <div className="flex justify-center gap-3 mb-8">
                                             {[...Array(4)].map((_, i) => (
                                                 <div key={i} className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${pinBuffer.length > i ? 'bg-blue-500 border-blue-500 scale-110' : 'border-slate-300'}`}></div>
@@ -501,7 +527,7 @@
                                                 <div key={i} className={`flex items-stretch p-6 rounded-[2.5rem] border shadow-sm transition-all active:scale-[0.98] ${item.isConflicted ? 'bg-red-50 border-red-200 animate-border-red' : isHoli ? 'bg-red-50 border-red-100' : isSpec ? 'bg-amber-50 border-amber-100' : 'bg-white border-slate-50'}`}>
                                                     <div className={`flex flex-col justify-center border-r pr-6 min-w-[95px] ${item.isConflicted ? 'border-red-200' : isHoli ? 'border-red-200/50' : isSpec ? 'border-amber-200/50' : 'border-slate-100/50'}`}>
                                                         <span className={`text-[11px] font-black tracking-tighter italic ${item.isConflicted || isHoli ? 'text-red-600' : isSpec ? 'text-amber-700' : 'text-slate-800'}`}>{isHoli ? "00:00" : String(item.t || "").split('~')[0]}</span>
-                                                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{isHoli ? 'OFF' : 'Start'}</span>
+                                                        <span className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">{isHoli ? 'OFF' : 'Start'}</span>
                                                     </div>
                                                     <div className="pl-6 flex-1 flex flex-col justify-center overflow-hidden">
                                                         <div className="flex items-center gap-1.5 mb-1">
@@ -520,9 +546,7 @@
                                 ) : <div className="py-24 text-center text-slate-300 font-bold">등록된 일정이 없습니다.</div>
                             )}
                         </div>
-                        <div className="h-12 bg-white" />
                     </div>
-                    <div className="hidden bg-blue-600 bg-green-700 bg-blue-50 bg-green-50 border-blue-400 border-green-400 text-blue-600 text-green-600 shadow-blue-100 shadow-green-100"></div>
                 </div>
             );
         };
