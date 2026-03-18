@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Family Schedule App v3.6 (Fixed Swipe)</title>
+    <title>Family Schedule App v3.7 (Stable Swipe)</title>
     
     <!-- 모바일 앱 설정 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -24,16 +24,11 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;900&display=swap');
         
-        :root {
-            --sat: env(safe-area-inset-top);
-            --sab: env(safe-area-inset-bottom);
-        }
-
         html, body {
             margin: 0;
             padding: 0;
             height: 100%;
-            overflow: hidden; /* 전체 화면 스크롤 원천 차단 */
+            overflow: hidden; /* 상하 스크롤 원천 봉쇄 */
             overscroll-behavior: none;
             background-color: #f8fafc;
         }
@@ -51,12 +46,13 @@
         }
 
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        .sheet-transition { transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
         
-        /* 캘린더 컨테이너: 브라우저 기본 제스처 완전 차단 */
         .calendar-gesture-area {
-            touch-action: none; 
+            touch-action: none; /* 브라우저 제스처 차단 */
             position: relative;
             overflow: hidden;
+            width: 100%;
         }
 
         input, textarea { user-select: text !important; }
@@ -64,6 +60,7 @@
         input[type="time"]::-webkit-calendar-picker-indicator {
             position: absolute; left: 0; top: 0; width: 100%; height: 100%; margin: 0; padding: 0; cursor: pointer; opacity: 0; 
         }
+
         @keyframes pulse-red {
             0% { border-color: rgba(239, 68, 68, 0.2); }
             50% { border-color: rgba(239, 68, 68, 0.8); }
@@ -98,7 +95,6 @@
                 'cycle': <React.Fragment><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></React.Fragment>,
                 'gift': <React.Fragment><polyline points="20 12 20 22 4 22 4 12"/><rect width="20" height="5" x="2" y="7" rx="2"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></React.Fragment>,
                 'alert-triangle': <React.Fragment><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></React.Fragment>,
-                'refresh': <path d="M21 12a9 9 1 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>,
                 'database': <React.Fragment><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></React.Fragment>
             };
             return (
@@ -143,7 +139,6 @@
             
             const gestureAreaRef = useRef(null);
             const touchStartPos = useRef({ x: 0, y: 0 });
-            const swipeDirection = useRef(null); // 'h' (horizontal) or 'v' (vertical)
 
             const showMessage = (msg) => { setUiMessage(msg); setTimeout(() => setUiMessage(null), 2000); };
 
@@ -194,56 +189,59 @@
                 setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
             }, []);
 
-            // [개선된 스와이프 로직]
+            // [핵심: 이벤트 핸들러 최적화]
             useEffect(() => {
                 const el = gestureAreaRef.current;
                 if (!el) return;
 
+                let startX = 0;
+                let startY = 0;
+                let isHorizontal = false;
+                let isVertical = false;
+
                 const handleStart = (e) => {
-                    touchStartPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                    startX = e.touches[0].clientX;
+                    startY = e.touches[0].clientY;
+                    isHorizontal = false;
+                    isVertical = false;
                     setIsDragging(true);
-                    swipeDirection.current = null;
                 };
 
                 const handleMove = (e) => {
-                    if (!isDragging) return;
-                    
+                    if (!startX) return;
+
                     const currentX = e.touches[0].clientX;
                     const currentY = e.touches[0].clientY;
-                    const diffX = currentX - touchStartPos.current.x;
-                    const diffY = currentY - touchStartPos.current.y;
+                    const dx = currentX - startX;
+                    const dy = currentY - startY;
 
-                    // 방향 판별 (처음 움직였을 때 한 번만 수행)
-                    if (!swipeDirection.current) {
-                        if (Math.abs(diffX) > Math.abs(diffY)) {
-                            swipeDirection.current = 'h';
-                        } else if (Math.abs(diffY) > 10) {
-                            swipeDirection.current = 'v';
-                        }
+                    // 방향 결정 임계값 (10px)
+                    if (!isHorizontal && !isVertical) {
+                        if (Math.abs(dx) > 10) isHorizontal = true;
+                        else if (Math.abs(dy) > 10) isVertical = true;
                     }
 
-                    // 수평 스와이프인 경우 브라우저 기본 동작 차단 및 오프셋 적용
-                    if (swipeDirection.current === 'h') {
-                        if (e.cancelable) e.preventDefault(); 
-                        setSwipeOffset(diffX);
+                    // 수평 스와이프인 경우 브라우저 수직 스크롤/바운스 차단
+                    if (isHorizontal) {
+                        if (e.cancelable) e.preventDefault();
+                        setSwipeOffset(dx);
                     }
                 };
 
-                const handleEnd = () => {
-                    if (!isDragging) return;
-                    
-                    const finalX = touchStartPos.current.x + swipeOffset;
-                    const diff = finalX - touchStartPos.current.x;
+                const handleEnd = (e) => {
+                    const finalX = e.changedTouches[0].clientX;
+                    const dx = finalX - startX;
 
-                    if (swipeDirection.current === 'h' && Math.abs(diff) > 70) {
-                        moveMonth(diff > 0 ? -1 : 1);
+                    if (isHorizontal && Math.abs(dx) > 60) {
+                        moveMonth(dx > 0 ? -1 : 1);
                     }
 
                     setIsDragging(false);
                     setSwipeOffset(0);
-                    swipeDirection.current = null;
+                    startX = 0;
                 };
 
+                // passive: false를 주어 preventDefault()가 작동하게 함
                 el.addEventListener('touchstart', handleStart, { passive: true });
                 el.addEventListener('touchmove', handleMove, { passive: false });
                 el.addEventListener('touchend', handleEnd, { passive: true });
@@ -253,9 +251,8 @@
                     el.removeEventListener('touchmove', handleMove);
                     el.removeEventListener('touchend', handleEnd);
                 };
-            }, [isDragging, moveMonth, swipeOffset]);
+            }, [moveMonth]); // dependencies를 최소화하여 불필요한 재등록 방지
 
-            // 공휴일 API 데이터
             useEffect(() => {
                 const fetchHolidays = async () => {
                     try {
@@ -273,7 +270,6 @@
                 fetchHolidays();
             }, []);
 
-            // Firebase 인증
             useEffect(() => {
                 const initAuth = async () => {
                     try {
@@ -286,14 +282,12 @@
                 return () => unsubscribe();
             }, []);
 
-            // 데이터 동기화
             useEffect(() => {
                 if (!user) return;
                 const docRef = db.doc(`artifacts/${appId}/public/data/schedules/v2_1_master`);
                 const unsubscribe = docRef.onSnapshot((docSnap) => {
-                    if (docSnap.exists) {
-                        setMasterData(docSnap.data());
-                    } else {
+                    if (docSnap.exists) setMasterData(docSnap.data());
+                    else {
                         const data = getInitialData();
                         docRef.set(data).then(() => setMasterData(data)).catch(console.error);
                     }
@@ -364,7 +358,7 @@
             };
 
             return (
-                <div className="flex flex-col h-full bg-slate-50 text-slate-900">
+                <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden">
                     {uiMessage && <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-slate-800 text-white px-6 py-3 rounded-full text-xs font-bold shadow-2xl animate-in fade-in slide-in-from-top-4">{uiMessage}</div>}
 
                     {pendingConflict && (
@@ -374,7 +368,7 @@
                                 <h4 className="text-xl font-black text-center mb-2">시간 중복 감지</h4>
                                 <p className="text-slate-500 text-center text-sm mb-8">시간이 겹칩니다. 계속 진행하시겠습니까?</p>
                                 <div className="flex gap-3">
-                                    <button onClick={() => setPendingConflict(null)} className="flex-1 py-4 bg-slate-100 rounded-2xl font-bold">취소</button>
+                                    <button onClick={() => setPendingConflict(null)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold">취소</button>
                                     <button onClick={finalSaveToCloud} className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-bold">계속</button>
                                 </div>
                             </div>
@@ -404,9 +398,9 @@
                                     <button onClick={() => moveMonth(1)} className="p-2 active:scale-90"><Icon name="chevron-right" className="text-slate-400" /></button>
                                 </div>
                             </div>
-                            <div className="grid grid-cols-7 text-center px-4 pt-4 border-b border-slate-50 pb-2">
+                            <div className="grid grid-cols-7 text-center px-4 pt-4 border-b border-slate-50 pb-2 text-slate-400 font-black">
                                 {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
-                                    <div key={d} className={`text-[10px] font-black ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-400'}`}>{d}</div>
+                                    <div key={d} className={`text-[10px] ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : ''}`}>{d}</div>
                                 ))}
                             </div>
                             <div 
@@ -503,7 +497,7 @@
                                 <div className="py-6 flex flex-col items-center">
                                     <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 w-full max-w-[280px] text-center shadow-inner">
                                         <Icon name="lock" className="w-8 h-8 mx-auto text-slate-300 mb-4" />
-                                        <h4 className="font-extrabold text-slate-800 mb-6 text-sm text-center">Security PIN</h4>
+                                        <h4 className="font-extrabold text-slate-800 mb-6 text-sm text-center tracking-tighter">Security PIN</h4>
                                         <div className="flex justify-center gap-3 mb-8">
                                             {[...Array(4)].map((_, i) => (
                                                 <div key={i} className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${pinBuffer.length > i ? 'bg-blue-500 border-blue-500 scale-110' : 'border-slate-300'}`}></div>
