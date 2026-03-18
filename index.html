@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Family Schedule App v4.3 (Data Restored)</title>
+    <title>Family Schedule App v4.5 (UI Refined)</title>
     
     <!-- 모바일 앱 설정 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -104,6 +104,7 @@
             const [holidays, setHolidays] = useState({});
             const [swipeOffset, setSwipeOffset] = useState(0);
             const [isDragging, setIsDragging] = useState(false);
+            const [isLongLoading, setIsLongLoading] = useState(false);
 
             const gestureAreaRef = useRef(null);
             const touchStartY = useRef(0);
@@ -149,11 +150,14 @@
                 }
             }), []);
 
-            // [Stable Gesture Engine]
+            useEffect(() => {
+                const timer = setTimeout(() => { if (!masterData) setIsLongLoading(true); }, 3000);
+                return () => clearTimeout(timer);
+            }, [masterData]);
+
             useEffect(() => {
                 const el = gestureAreaRef.current;
                 if (!el || !masterData) return;
-
                 const handleStart = (e) => { touchStartY.current = e.touches[0].clientY; setIsDragging(true); };
                 const handleMove = (e) => {
                     if (!touchStartY.current) return;
@@ -162,11 +166,11 @@
                 };
                 const handleEnd = (e) => {
                     if (!touchStartY.current) return;
-                    const delta = e.changedTouches[0].clientY - touchStartY.current;
+                    const finalY = e.changedTouches[0].clientY;
+                    const delta = finalY - touchStartY.current;
                     if (Math.abs(delta) > 60) moveMonth(delta > 0 ? -1 : 1);
                     setIsDragging(false); setSwipeOffset(0); touchStartY.current = 0;
                 };
-
                 el.addEventListener('touchstart', handleStart, { passive: true });
                 el.addEventListener('touchmove', handleMove, { passive: false });
                 el.addEventListener('touchend', handleEnd, { passive: true });
@@ -219,9 +223,9 @@
                 const monthly = holiday ? [] : (masterData[childId]?.monthly?.[`${weekNum}-${day}`] || []).map(i => ({...i, type: 'monthly'}));
                 const once = (masterData[childId]?.once?.[dateStr] || []).map(i => ({...i, type: 'once'}));
                 const list = [...weekly, ...monthly, ...once].sort((a,b) => String(a.t).localeCompare(String(b.t)));
-                if (holiday) list.unshift({ n: `🚩 ${holiday}`, t: "00:00~23:59", type: 'holiday' });
+                if (holiday) list.unshift({ n: holiday, t: "ALL DAY", type: 'holiday' });
                 return list;
-            }, [masterData, holidays, getWeekOfMonth]);
+            }, [masterData, holidays, getWeekOfMonth, getHolidayName]);
 
             const calendarDays = useMemo(() => {
                 const y = currentDate.getFullYear(), m = currentDate.getMonth();
@@ -252,7 +256,9 @@
             if (!masterData) return (
                 <div className="h-screen flex flex-col items-center justify-center bg-white space-y-4">
                     <div className="w-10 h-10 border-4 border-slate-100 border-t-blue-500 rounded-full animate-spin" />
-                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Restoring Data...</p>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest animate-pulse">
+                        {isLongLoading ? "Restoring Data..." : "Connecting Cloud..."}
+                    </p>
                 </div>
             );
 
@@ -262,7 +268,7 @@
             return (
                 <div className="flex flex-col h-full bg-slate-50 relative">
                     {uiMessage && <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-slate-800 text-white px-6 py-3 rounded-full text-xs font-bold shadow-2xl animate-in fade-in">{uiMessage}</div>}
-                    <div className="fixed bottom-2 right-4 z-[5] text-[9px] font-black text-slate-300 pointer-events-none uppercase tracking-tighter">v4.3 RESTORED</div>
+                    <div className="fixed bottom-2 right-4 z-[5] text-[9px] font-black text-slate-300 pointer-events-none uppercase tracking-tighter">v4.5 UI FIXED</div>
 
                     <header className="bg-white/80 backdrop-blur-md border-b px-4 py-4 pt-12 flex-shrink-0">
                         <div className="flex items-center justify-between max-w-md mx-auto w-full">
@@ -360,7 +366,7 @@
                                             <div className="space-y-4">
                                                 <div className="flex bg-white p-1 rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                                                     {['weekly', 'monthly', 'once'].map(type => (
-                                                        <button key={type} onClick={() => { const n = [...editingItems]; n[i].type = type; setEditingItems(n); }} className={`flex-1 py-2 text-[9px] font-black transition-all ${item.type === type ? (type === 'weekly' ? `bg-${theme}-600 text-white shadow-md` : 'bg-amber-500 text-white shadow-md') : 'text-slate-400'}`}>
+                                                        <button key={type} onClick={() => { const n = [...editingItems]; n[i].type = type; setEditingItems(n); }} className={`flex-1 py-2 text-[9px] font-black transition-all ${item.type === type ? (type === 'weekly' ? `bg-${theme}-600 text-white shadow-md` : 'bg-amber-50 text-white shadow-md') : 'text-slate-400'}`}>
                                                             {type === 'weekly' ? '매주' : type === 'monthly' ? '매월' : '오늘'}
                                                         </button>
                                                     ))}
@@ -392,21 +398,36 @@
                             {!isPinInputOpen && !isEditMode && (
                                 currentSchedule.length > 0 ? (
                                     <div className="space-y-4 pb-12">
-                                        {currentSchedule.map((item, i) => (
-                                            <div key={i} className={`flex items-stretch p-6 rounded-[2.5rem] border shadow-sm active:scale-[0.98] transition-transform ${item.type === 'holiday' ? 'bg-red-50 border-red-100' : (item.type === 'monthly' || item.type === 'once') ? 'bg-amber-50 border-amber-100' : 'bg-white border-slate-50'}`}>
-                                                <div className="flex flex-col justify-center border-r pr-6 min-w-[95px]">
-                                                    <span className={`text-[11px] font-black italic ${item.type === 'holiday' ? 'text-red-600' : 'text-slate-800'}`}>{String(item.t || "").split('~')[0]}</span>
-                                                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{item.type === 'holiday' ? 'OFF' : 'Start'}</span>
-                                                </div>
-                                                <div className="pl-6 flex-1 flex flex-col justify-center overflow-hidden">
-                                                    <div className="flex items-center gap-1.5 mb-1 text-slate-800">
-                                                        {item.type === 'holiday' ? <Icon name="gift" className="text-red-500" /> : <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[8px] font-black uppercase">{item.type}</span>}
-                                                        <h4 className="text-lg font-black leading-tight truncate">{item.n}</h4>
+                                        {currentSchedule.map((item, i) => {
+                                            const isHoli = item.type === 'holiday';
+                                            const isSpec = item.type === 'monthly' || item.type === 'once';
+                                            return (
+                                                <div key={i} className={`flex items-stretch p-6 rounded-[2.5rem] border shadow-sm active:scale-[0.98] transition-transform ${isHoli ? 'bg-red-50 border-red-100' : isSpec ? 'bg-amber-50 border-amber-100' : 'bg-white border-slate-50'}`}>
+                                                    {/* 카드 왼쪽: 시간 정보 */}
+                                                    <div className={`flex flex-col justify-center border-r pr-6 min-w-[95px] ${isHoli ? 'border-red-100' : 'border-slate-100'}`}>
+                                                        <span className={`text-[11px] font-black italic ${isHoli ? 'text-red-600' : 'text-slate-800'}`}>
+                                                            {isHoli ? "OFF" : String(item.t || "").split('~')[0]}
+                                                        </span>
+                                                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
+                                                            {isHoli ? 'Holiday' : 'Start'}
+                                                        </span>
                                                     </div>
-                                                    <p className="text-xs font-medium text-slate-400">{item.type === 'holiday' ? '전체 휴무' : formatToAmPm(String(item.t).split('~')[0]) + ' ~ ' + formatToAmPm(String(item.t).split('~')[1])}</p>
+                                                    {/* 카드 오른쪽: 내용 */}
+                                                    <div className="pl-6 flex-1 flex flex-col justify-center overflow-hidden">
+                                                        <div className="flex items-center gap-2 mb-1 text-slate-800">
+                                                            {isHoli && <Icon name="gift" className="text-red-500 w-4 h-4 flex-shrink-0" />}
+                                                            {!isHoli && isSpec && <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[8px] font-black uppercase">{item.type}</span>}
+                                                            <h4 className={`text-lg font-black leading-tight truncate ${isHoli ? 'text-red-800' : 'text-slate-800'}`}>
+                                                                {item.n}
+                                                            </h4>
+                                                        </div>
+                                                        <p className={`text-xs font-medium ${isHoli ? 'text-red-400' : 'text-slate-400'}`}>
+                                                            {isHoli ? '공휴일 휴무' : formatToAmPm(String(item.t).split('~')[0]) + ' ~ ' + formatToAmPm(String(item.t).split('~')[1])}
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 ) : <div className="py-24 text-center text-slate-300 font-bold">등록된 일정이 없습니다.</div>
                             )}
