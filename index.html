@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Family Schedule App v3.4 (Gesture Stabilized)</title>
+    <title>Family Schedule App v3.5 (Zero-Bounce Gesture)</title>
     
     <!-- 모바일 앱 설정 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -28,16 +28,17 @@
             -webkit-tap-highlight-color: transparent; 
             user-select: none; 
             background-color: #f8fafc;
-            overscroll-behavior-y: none; /* 세로 새로고침/바운스 방지 */
+            /* 전역 바운스 방지 */
+            overscroll-behavior-y: none; 
             overflow-x: hidden;
         }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .sheet-transition { transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
         
-        /* 캘린더 컨테이너: 화면 전체가 들썩이는 현상 방지 */
+        /* 캘린더 컨테이너: 모든 방향의 브라우저 기본 제스처 차단 (JS로 제어) */
         .calendar-gesture-area {
-            touch-action: pan-y; /* 수평 제스처는 브라우저가 개입하지 않음 */
-            overscroll-behavior-x: none;
+            touch-action: none; /* 브라우저의 팬/줌 기능을 끄고 순수 JS 제어 */
+            overscroll-behavior: none;
             overflow: hidden;
             position: relative;
         }
@@ -57,7 +58,6 @@
         .swipe-content {
             will-change: transform;
             user-select: none;
-            pointer-events: auto;
         }
     </style>
 </head>
@@ -123,12 +123,12 @@
             const [pendingConflict, setPendingConflict] = useState(null);
             const [loadError, setLoadError] = useState(null);
             
-            // 스와이프 제어 상태
+            // [스와이프 안정화 상태]
             const [swipeOffset, setSwipeOffset] = useState(0);
             const [isDragging, setIsDragging] = useState(false);
             const touchStartX = useRef(0);
             const touchStartY = useRef(0);
-            const isHorizontalSwipe = useRef(false);
+            const gestureAreaRef = useRef(null);
 
             const showMessage = (msg) => { setUiMessage(msg); setTimeout(() => setUiMessage(null), 2000); };
 
@@ -176,45 +176,56 @@
             }), []);
 
             const moveMonth = useCallback((offset) => {
-                setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1));
-            }, [currentDate]);
+                setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
+            }, []);
 
-            // [개선된 스와이프 핸들러]
-            const onTouchStart = (e) => {
-                touchStartX.current = e.touches[0].clientX;
-                touchStartY.current = e.touches[0].clientY;
-                setIsDragging(true);
-                isHorizontalSwipe.current = false;
-            };
+            // [핵심: 수직 들썩임 방지를 위한 수동 이벤트 리스너]
+            useEffect(() => {
+                const el = gestureAreaRef.current;
+                if (!el) return;
 
-            const onTouchMove = (e) => {
-                if (!isDragging) return;
-                const currentX = e.touches[0].clientX;
-                const currentY = e.touches[0].clientY;
-                const diffX = currentX - touchStartX.current;
-                const diffY = currentY - touchStartY.current;
+                const handleStart = (e) => {
+                    touchStartX.current = e.touches[0].clientX;
+                    touchStartY.current = e.touches[0].clientY;
+                    setIsDragging(true);
+                };
 
-                // 수평 이동이 수직 이동보다 클 때만 스와이프 처리 (화면 스크롤 간섭 최소화)
-                if (!isHorizontalSwipe.current && Math.abs(diffX) > Math.abs(diffY)) {
-                    isHorizontalSwipe.current = true;
-                }
+                const handleMove = (e) => {
+                    if (!touchStartX.current) return;
+                    
+                    const currentX = e.touches[0].clientX;
+                    const currentY = e.touches[0].clientY;
+                    const diffX = currentX - touchStartX.current;
+                    const diffY = currentY - touchStartY.current;
 
-                if (isHorizontalSwipe.current) {
-                    setSwipeOffset(diffX);
-                }
-            };
+                    // 수평 이동의 절대값이 더 크면 브라우저 스크롤(수직)을 완전히 막음
+                    if (Math.abs(diffX) > Math.abs(diffY)) {
+                        if (e.cancelable) e.preventDefault(); // 수직 들썩임 원천 차단
+                        setSwipeOffset(diffX);
+                    }
+                };
 
-            const onTouchEnd = () => {
-                if (!isDragging) return;
-                setIsDragging(false);
-                const diff = swipeOffset;
-                
-                if (isHorizontalSwipe.current && Math.abs(diff) > 70) {
-                    if (diff > 0) moveMonth(-1);
-                    else moveMonth(1);
-                }
-                setSwipeOffset(0);
-            };
+                const handleEnd = () => {
+                    setIsDragging(false);
+                    // 오프셋이 일정 값 이상일 때만 페이지 전환
+                    if (Math.abs(swipeOffset) > 70) {
+                        moveMonth(swipeOffset > 0 ? -1 : 1);
+                    }
+                    setSwipeOffset(0);
+                    touchStartX.current = 0;
+                };
+
+                // { passive: false } 를 위해 addEventListener 사용
+                el.addEventListener('touchstart', handleStart, { passive: true });
+                el.addEventListener('touchmove', handleMove, { passive: false });
+                el.addEventListener('touchend', handleEnd, { passive: true });
+
+                return () => {
+                    el.removeEventListener('touchstart', handleStart);
+                    el.removeEventListener('touchmove', handleMove);
+                    el.removeEventListener('touchend', handleEnd);
+                };
+            }, [moveMonth, swipeOffset]);
 
             useEffect(() => {
                 const fetchHolidays = async () => {
@@ -224,12 +235,11 @@
                         for (const year of years) {
                             const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/KR`);
                             if (res.ok) {
-                                const data = await res.json();
-                                data.forEach(h => { allHolidays[h.date] = h.localName; });
+                                (await res.json()).forEach(h => { allHolidays[h.date] = h.localName; });
                             }
                         }
                         setHolidays(allHolidays);
-                    } catch (err) { console.error("Holiday API Error"); }
+                    } catch (err) { console.error("Holiday API Fail"); }
                 };
                 fetchHolidays();
             }, []);
@@ -239,7 +249,7 @@
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await auth.signInWithCustomToken(__initial_auth_token);
                         else await auth.signInAnonymously();
-                    } catch (err) { await auth.signInAnonymously().catch(() => setLoadError("인증 실패")); }
+                    } catch (err) { await auth.signInAnonymously().catch(() => setLoadError("Auth Error")); }
                 };
                 initAuth();
                 const unsubscribe = auth.onAuthStateChanged((u) => { if (u) setUser(u); });
@@ -255,12 +265,9 @@
                         setLoadError(null);
                     } else {
                         const data = getInitialData();
-                        docRef.set(data).then(() => {
-                            setMasterData(data);
-                            setLoadError(null);
-                        }).catch(e => setLoadError("권한 부족"));
+                        docRef.set(data).then(() => setMasterData(data)).catch(() => setLoadError("Retry Required"));
                     }
-                }, (error) => setLoadError("DB 연결 실패"));
+                }, () => setLoadError("DB Connection Lost"));
                 return () => unsubscribe();
             }, [user, getInitialData]);
 
@@ -327,7 +334,7 @@
                     await db.doc(`artifacts/${appId}/public/data/schedules/v2_1_master`).set({ ...masterData, [activeChild]: updatedChild });
                     setIsEditMode(false);
                     showMessage("저장 완료!");
-                } catch (e) { showMessage("저장 실패 - 권한 확인"); }
+                } catch (e) { showMessage("저장 실패"); }
             };
 
             return (
@@ -363,7 +370,7 @@
                     </header>
 
                     <main className="flex-1 p-4 max-w-md mx-auto w-full">
-                        <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden mb-6 calendar-gesture-area">
+                        <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden mb-6 calendar-gesture-area" ref={gestureAreaRef}>
                             <div className="flex items-center justify-between p-6 pb-2">
                                 <h2 className="text-lg font-extrabold text-slate-800">{currentDate.getFullYear()}년 {currentDate.getMonth() + 1}월</h2>
                                 <div className="flex space-x-1">
@@ -380,9 +387,6 @@
 
                             <div 
                                 className="grid grid-cols-7 gap-px bg-slate-100/30 swipe-content"
-                                onTouchStart={onTouchStart}
-                                onTouchMove={onTouchMove}
-                                onTouchEnd={onTouchEnd}
                                 style={{ 
                                     transform: `translateX(${swipeOffset}px)`,
                                     transition: isDragging ? 'none' : 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)'
